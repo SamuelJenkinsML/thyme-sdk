@@ -21,14 +21,20 @@ from thyme.connectors import clear_source_registry, get_registered_sources
 from thyme.gen import services_pb2
 
 
+_EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
+
+
 @pytest.fixture
 def restaurant_reviews_features():
     """Import restaurant review features module and return registry state."""
+    if not (_EXAMPLES_DIR / "restaurant_reviews").is_dir():
+        pytest.skip("examples/restaurant_reviews not available (standalone SDK repo)")
+
     clear_registry()
     clear_featureset_registry()
     clear_source_registry()
 
-    examples_dir = str(Path(__file__).parent.parent.parent / "examples")
+    examples_dir = str(_EXAMPLES_DIR)
     if examples_dir not in sys.path:
         sys.path.insert(0, examples_dir)
 
