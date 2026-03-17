@@ -1,0 +1,261 @@
+import pytest
+
+from thyme.connectors import (
+    IcebergSource,
+    PostgresSource,
+    S3JsonSource,
+    source,
+    clear_source_registry,
+    get_registered_sources,
+)
+
+
+@pytest.fixture(autouse=True)
+def clean_registry():
+    clear_source_registry()
+    yield
+    clear_source_registry()
+
+
+def test_iceberg_source_to_dict():
+    src = IcebergSource(catalog="local", database="restaurant_reviews", table="reviews")
+    d = src.to_dict()
+    assert d["connector_type"] == "iceberg"
+    assert d["config"]["catalog"] == "local"
+    assert d["config"]["database"] == "restaurant_reviews"
+    assert d["config"]["table"] == "reviews"
+
+
+def test_source_decorator_registers():
+    reviews_src = IcebergSource(catalog="local", database="db", table="reviews")
+
+    @source(reviews_src, cursor="timestamp", every="1m")
+    class Review:
+        pass
+
+    sources = get_registered_sources()
+    assert "Review" in sources
+    assert sources["Review"]["dataset"] == "Review"
+    assert sources["Review"]["cursor"] == "timestamp"
+    assert sources["Review"]["every"] == "1m"
+    assert sources["Review"]["connector_type"] == "iceberg"
+
+
+def test_source_decorator_preserves_class():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    @source(src, cursor="ts")
+    class MyDataset:
+        x = 42
+
+    assert MyDataset.x == 42
+    assert hasattr(MyDataset, "_source_meta")
+
+
+def test_source_disorder_is_stored():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    @source(src, cursor="ts", every="5m", disorder="1h")
+    class Review:
+        pass
+
+    sources = get_registered_sources()
+    assert sources["Review"]["disorder"] == "1h"
+
+
+def test_source_disorder_defaults_to_empty():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    @source(src, cursor="ts")
+    class Review:
+        pass
+
+    sources = get_registered_sources()
+    assert sources["Review"]["disorder"] == ""
+
+
+def test_source_cdc_defaults_to_append():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    @source(src, cursor="ts")
+    class Review:
+        pass
+
+    sources = get_registered_sources()
+    assert sources["Review"]["cdc"] == "append"
+
+
+def test_source_cdc_append_is_stored():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    @source(src, cursor="ts", cdc="append")
+    class Review:
+        pass
+
+    sources = get_registered_sources()
+    assert sources["Review"]["cdc"] == "append"
+
+
+def test_source_cdc_debezium_is_stored():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    @source(src, cursor="ts", cdc="debezium")
+    class Review:
+        pass
+
+    sources = get_registered_sources()
+    assert sources["Review"]["cdc"] == "debezium"
+
+
+def test_source_cdc_upsert_is_stored():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    @source(src, cursor="ts", cdc="upsert")
+    class Review:
+        pass
+
+    sources = get_registered_sources()
+    assert sources["Review"]["cdc"] == "upsert"
+
+
+def test_source_invalid_cdc_raises_value_error():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    with pytest.raises(ValueError, match="cdc"):
+        @source(src, cursor="ts", cdc="invalid_mode")
+        class Review:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# PostgresSource tests
+# ---------------------------------------------------------------------------
+
+def test_postgres_source_to_dict_connector_type():
+    # Given: a PostgresSource configuration
+    src = PostgresSource(
+        host="localhost", port=5432, database="mydb",
+        table="orders", user="admin", password="secret",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: connector_type is "postgres"
+    assert d["connector_type"] == "postgres"
+
+
+def test_postgres_source_to_dict_config_fields():
+    # Given: a PostgresSource with all fields
+    src = PostgresSource(
+        host="db.example.com", port=5433, database="sales",
+        table="events", user="reader", password="pw", schema="public",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: config contains all connection fields
+    cfg = d["config"]
+    assert cfg["host"] == "db.example.com"
+    assert cfg["port"] == 5433
+    assert cfg["database"] == "sales"
+    assert cfg["table"] == "events"
+    assert cfg["user"] == "reader"
+    assert cfg["password"] == "pw"
+    assert cfg["schema"] == "public"
+
+
+def test_postgres_source_default_schema_is_public():
+    # Given: a PostgresSource without explicit schema
+    src = PostgresSource(host="h", port=5432, database="d", table="t", user="u", password="p")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: schema defaults to "public"
+    assert d["config"]["schema"] == "public"
+
+
+def test_postgres_source_registers_with_source_decorator():
+    # Given: a PostgresSource attached to a dataset
+    pg_src = PostgresSource(host="h", port=5432, database="d", table="t", user="u", password="p")
+
+    @source(pg_src, cursor="updated_at", every="5m")
+    class PgDataset:
+        pass
+
+    # When: reading registered sources
+    sources = get_registered_sources()
+
+    # Then: the source is registered with the correct connector type
+    assert "PgDataset" in sources
+    assert sources["PgDataset"]["connector_type"] == "postgres"
+    assert sources["PgDataset"]["cursor"] == "updated_at"
+
+
+# ---------------------------------------------------------------------------
+# S3JsonSource tests
+# ---------------------------------------------------------------------------
+
+def test_s3json_source_to_dict_connector_type():
+    # Given: an S3JsonSource
+    src = S3JsonSource(bucket="my-bucket", prefix="events/", region="us-east-1")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: connector_type is "s3json"
+    assert d["connector_type"] == "s3json"
+
+
+def test_s3json_source_to_dict_config_fields():
+    # Given: an S3JsonSource with all fields
+    src = S3JsonSource(bucket="data-lake", prefix="orders/2024/", region="eu-west-1")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: config contains bucket, prefix, region
+    cfg = d["config"]
+    assert cfg["bucket"] == "data-lake"
+    assert cfg["prefix"] == "orders/2024/"
+    assert cfg["region"] == "eu-west-1"
+
+
+def test_s3json_source_default_region_is_us_east_1():
+    # Given: an S3JsonSource without explicit region
+    src = S3JsonSource(bucket="my-bucket")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: region defaults to "us-east-1"
+    assert d["config"]["region"] == "us-east-1"
+
+
+def test_s3json_source_default_prefix_is_empty():
+    # Given: an S3JsonSource without explicit prefix
+    src = S3JsonSource(bucket="my-bucket")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: prefix defaults to ""
+    assert d["config"]["prefix"] == ""
+
+
+def test_s3json_source_registers_with_source_decorator():
+    # Given: an S3JsonSource attached to a dataset
+    s3_src = S3JsonSource(bucket="events-bucket", prefix="raw/")
+
+    @source(s3_src, cursor="ts", every="10m")
+    class S3Dataset:
+        pass
+
+    # When: reading registered sources
+    sources = get_registered_sources()
+
+    # Then: correctly registered
+    assert "S3Dataset" in sources
+    assert sources["S3Dataset"]["connector_type"] == "s3json"
