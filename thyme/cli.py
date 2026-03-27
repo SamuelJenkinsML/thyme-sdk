@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -8,6 +9,7 @@ import httpx
 import typer
 from httpx import HTTPStatusError
 
+from thyme.config import Config, clear_credentials, load_credentials, save_credentials
 from thyme.dataset import clear_registry, get_commit_payload
 
 from rich.console import Console
@@ -17,6 +19,23 @@ app = typer.Typer(help="Thyme feature platform CLI.")
 DEFAULT_API_URL = "http://localhost:8080/api/v1/commit"
 DEFAULT_API_BASE = "http://localhost:8080"
 DEFAULT_QUERY_URL = "http://localhost:8081"
+
+
+def _resolve_config() -> Config:
+    """Load config from file + env + stored credentials."""
+    return Config.load()
+
+
+def _auth_headers(api_key: str | None = None) -> dict[str, str]:
+    """Build auth headers from explicit key, env, or stored credentials."""
+    key = api_key or os.environ.get("THYME_API_KEY", "")
+    if not key:
+        creds = load_credentials()
+        if creds:
+            key = creds.get("api_key", "")
+    if key:
+        return {"Authorization": f"Bearer {key}"}
+    return {}
 
 
 @app.command()
@@ -93,7 +112,9 @@ def commit(
             typer.echo(payload_json)
         return
 
-    url = api_url or DEFAULT_API_URL
+    config = _resolve_config()
+    url = api_url or config.api_url
+    headers = _auth_headers()
     try:
         proto_bytes = None
         try:
@@ -113,11 +134,11 @@ def commit(
             response = httpx.post(
                 url,
                 content=proto_bytes,
-                headers={"Content-Type": "application/protobuf"},
+                headers={**headers, "Content-Type": "application/protobuf"},
                 timeout=30.0,
             )
         else:
-            response = httpx.post(url, json=payload, timeout=30.0)
+            response = httpx.post(url, json=payload, headers=headers, timeout=30.0)
 
         response.raise_for_status()
         n_ds = len(payload["datasets"])
@@ -133,10 +154,10 @@ def commit(
         raise typer.Exit(1)
 
 
-def _check_health(url: str) -> bool:
+def _check_health(url: str, headers: dict[str, str] | None = None) -> bool:
     """Ping a health endpoint; return True if healthy."""
     try:
-        r = httpx.get(url, timeout=3)
+        r = httpx.get(url, headers=headers or {}, timeout=3)
         return r.status_code == 200
     except Exception:
         return False
@@ -149,19 +170,21 @@ def status(
     query_url: Optional[str] = typer.Option(None, "--query-url", envvar="THYME_QUERY_URL"),
 ) -> None:
     """Show system status: committed definitions, jobs, and service health."""
-    base = api_url or DEFAULT_API_BASE
-    qbase = query_url or DEFAULT_QUERY_URL
+    config = _resolve_config()
+    base = api_url or config.api_base
+    qbase = query_url or config.query_url
+    headers = _auth_headers()
 
     try:
-        r = httpx.get(f"{base}/api/v1/status", timeout=10)
+        r = httpx.get(f"{base}/api/v1/status", headers=headers, timeout=10)
         r.raise_for_status()
         data = r.json()
     except httpx.ConnectError as e:
         typer.echo(f"Error: Could not connect to {base}: {e}", err=True)
         raise typer.Exit(1)
 
-    ds_healthy = _check_health(f"{base}/health")
-    qs_healthy = _check_health(f"{qbase}/health")
+    ds_healthy = _check_health(f"{base}/health", headers)
+    qs_healthy = _check_health(f"{qbase}/health", headers)
 
     if json_output:
         combined = {
@@ -270,7 +293,9 @@ def logs(
     api_url: Optional[str] = typer.Option(None, "--api-url", envvar="THYME_API_URL"),
 ) -> None:
     """Show recent service events (commits, errors, backfills, etc.)."""
-    base = api_url or DEFAULT_API_BASE
+    config = _resolve_config()
+    base = api_url or config.api_base
+    headers = _auth_headers()
 
     params: dict = {"limit": limit}
     if severity:
@@ -279,7 +304,7 @@ def logs(
         params["event_type"] = event_type
 
     try:
-        r = httpx.get(f"{base}/api/v1/events", params=params, timeout=10)
+        r = httpx.get(f"{base}/api/v1/events", params=params, headers=headers, timeout=10)
         r.raise_for_status()
         events = r.json()
     except httpx.ConnectError as e:
@@ -310,6 +335,47 @@ def logs(
             ev.get("source", ""), ev.get("subject", ""), ev["message"],
         )
     console.print(t)
+
+
+@app.command()
+def login(
+    url: str = typer.Option(..., "--url", help="Thyme API base URL (e.g. http://my-thyme.elb.amazonaws.com)"),
+    api_key: str = typer.Option(..., "--api-key", help="API key for authentication"),
+    query_url: Optional[str] = typer.Option(None, "--query-url", help="Query server URL (defaults to same as --url)"),
+) -> None:
+    """Authenticate with a Thyme deployment and store credentials locally.
+
+    Credentials are stored at ~/.thyme/credentials and used automatically
+    by all subsequent commands (commit, status, logs).
+    """
+    # Validate by hitting the health endpoint
+    try:
+        r = httpx.get(f"{url}/health", headers={"Authorization": f"Bearer {api_key}"}, timeout=5)
+        if r.status_code != 200:
+            typer.echo(f"Warning: health check returned {r.status_code}", err=True)
+    except httpx.ConnectError:
+        typer.echo(f"Warning: could not reach {url}/health — saving credentials anyway", err=True)
+    except Exception:
+        pass
+
+    cred_path = save_credentials(
+        api_key=api_key,
+        api_base=url.rstrip("/"),
+        query_url=(query_url or url).rstrip("/"),
+    )
+    typer.echo(f"Credentials saved to {cred_path}")
+    typer.echo(f"  API: {url}")
+    typer.echo(f"  Query: {query_url or url}")
+    typer.echo("\nAll subsequent commands will use these credentials automatically.")
+
+
+@app.command()
+def logout() -> None:
+    """Remove stored Thyme credentials."""
+    if clear_credentials():
+        typer.echo("Credentials removed.")
+    else:
+        typer.echo("No credentials found.")
 
 
 @app.command()
