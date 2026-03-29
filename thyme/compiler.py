@@ -81,7 +81,18 @@ def compile_dataset(ds_meta: dict) -> dataset_pb2.Dataset:
 def compile_pipeline(pipeline_meta: dict) -> dataset_pb2.Pipeline:
     operators = []
     for op in pipeline_meta.get("operators", []):
-        if "aggregate" in op:
+        if "temporal_join" in op:
+            tj = op["temporal_join"]
+            operators.append(dataset_pb2.Operator(
+                id="temporal_join",
+                temporal_join=dataset_pb2.TemporalJoin(
+                    right_dataset=tj.get("right_dataset", ""),
+                    left_key_field=tj.get("left_key_field", ""),
+                    right_key_field=tj.get("right_key_field", ""),
+                    select_fields=tj.get("select_fields", []),
+                ),
+            ))
+        elif "aggregate" in op:
             agg = op["aggregate"]
             specs = []
             for s in agg.get("specs", []):
@@ -153,11 +164,28 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
         cdc=src_meta.get("cdc", "append"),
     )
     config = src_meta.get("config", {})
-    if src_meta.get("connector_type") == "iceberg":
+    connector_type = src_meta.get("connector_type", "")
+    if connector_type == "iceberg":
         source.iceberg.CopyFrom(connector_pb2.IcebergSource(
             catalog=config.get("catalog", ""),
             database=config.get("database", ""),
             table=config.get("table", ""),
+        ))
+    elif connector_type == "postgres":
+        source.postgres.CopyFrom(connector_pb2.PostgresSource(
+            host=config.get("host", ""),
+            port=config.get("port", 5432),
+            database=config.get("database", ""),
+            table=config.get("table", ""),
+            user=config.get("user", ""),
+            password=config.get("password", ""),
+            schema=config.get("schema", "public"),
+        ))
+    elif connector_type == "s3json":
+        source.s3json.CopyFrom(connector_pb2.S3JsonSource(
+            bucket=config.get("bucket", ""),
+            prefix=config.get("prefix", ""),
+            region=config.get("region", "us-east-1"),
         ))
     return source
 

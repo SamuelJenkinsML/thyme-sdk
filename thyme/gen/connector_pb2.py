@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15thyme/connector.proto\x12\x05thyme\"A\n\rIcebergSource\x12\x0f\n\x07\x63\x61talog\x18\x01 \x01(\t\x12\x10\n\x08\x64\x61tabase\x18\x02 \x01(\t\x12\r\n\x05table\x18\x03 \x01(\t\"\x8d\x01\n\x06Source\x12\x0f\n\x07\x64\x61taset\x18\x01 \x01(\t\x12\x0e\n\x06\x63ursor\x18\x02 \x01(\t\x12\r\n\x05\x65very\x18\x03 \x01(\t\x12\x10\n\x08\x64isorder\x18\x04 \x01(\t\x12\x0b\n\x03\x63\x64\x63\x18\x05 \x01(\t\x12\'\n\x07iceberg\x18\n \x01(\x0b\x32\x14.thyme.IcebergSourceH\x00\x42\x0b\n\tconnectorb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15thyme/connector.proto\x12\x05thyme\"A\n\rIcebergSource\x12\x0f\n\x07\x63\x61talog\x18\x01 \x01(\t\x12\x10\n\x08\x64\x61tabase\x18\x02 \x01(\t\x12\r\n\x05table\x18\x03 \x01(\t\"}\n\x0ePostgresSource\x12\x0c\n\x04host\x18\x01 \x01(\t\x12\x0c\n\x04port\x18\x02 \x01(\x05\x12\x10\n\x08\x64\x61tabase\x18\x03 \x01(\t\x12\r\n\x05table\x18\x04 \x01(\t\x12\x0c\n\x04user\x18\x05 \x01(\t\x12\x10\n\x08password\x18\x06 \x01(\t\x12\x0e\n\x06schema\x18\x07 \x01(\t\">\n\x0cS3JsonSource\x12\x0e\n\x06\x62ucket\x18\x01 \x01(\t\x12\x0e\n\x06prefix\x18\x02 \x01(\t\x12\x0e\n\x06region\x18\x03 \x01(\t\"\xdf\x01\n\x06Source\x12\x0f\n\x07\x64\x61taset\x18\x01 \x01(\t\x12\x0e\n\x06\x63ursor\x18\x02 \x01(\t\x12\r\n\x05\x65very\x18\x03 \x01(\t\x12\x10\n\x08\x64isorder\x18\x04 \x01(\t\x12\x0b\n\x03\x63\x64\x63\x18\x05 \x01(\t\x12\'\n\x07iceberg\x18\n \x01(\x0b\x32\x14.thyme.IcebergSourceH\x00\x12)\n\x08postgres\x18\x0b \x01(\x0b\x32\x15.thyme.PostgresSourceH\x00\x12%\n\x06s3json\x18\x0c \x01(\x0b\x32\x13.thyme.S3JsonSourceH\x00\x42\x0b\n\tconnectorb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,6 +33,10 @@ if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_ICEBERGSOURCE']._serialized_start=32
   _globals['_ICEBERGSOURCE']._serialized_end=97
-  _globals['_SOURCE']._serialized_start=100
-  _globals['_SOURCE']._serialized_end=241
+  _globals['_POSTGRESSOURCE']._serialized_start=99
+  _globals['_POSTGRESSOURCE']._serialized_end=224
+  _globals['_S3JSONSOURCE']._serialized_start=226
+  _globals['_S3JSONSOURCE']._serialized_end=288
+  _globals['_SOURCE']._serialized_start=291
+  _globals['_SOURCE']._serialized_end=514
 # @@protoc_insertion_point(module_scope)
