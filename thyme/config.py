@@ -34,6 +34,7 @@ class PostgresConfig:
     user: str = "thyme"
     password: str = "thyme"
     schema: str = "public"
+    sslmode: str = "prefer"
 
 
 @dataclass
@@ -106,6 +107,7 @@ class Config:
             user=pg.get("user", PostgresConfig.user),
             password=pg.get("password", PostgresConfig.password),
             schema=pg.get("schema", PostgresConfig.schema),
+            sslmode=pg.get("sslmode", PostgresConfig.sslmode),
         )
 
         # S3
@@ -157,6 +159,7 @@ class Config:
             user=self.postgres.user,
             password=self.postgres.password,
             schema=schema or self.postgres.schema,
+            sslmode=self.postgres.sslmode,
         )
 
     def s3_source(self, prefix: str | None = None) -> "S3JsonSource":

@@ -32,6 +32,7 @@ class PostgresSource:
         user: str,
         password: str,
         schema: str = "public",
+        sslmode: str = "prefer",
     ):
         self.host = host
         self.port = port
@@ -40,6 +41,7 @@ class PostgresSource:
         self.user = user
         self.password = password
         self.schema = schema
+        self.sslmode = sslmode
 
     def to_dict(self) -> dict:
         return {
@@ -52,6 +54,7 @@ class PostgresSource:
                 "user": self.user,
                 "password": self.password,
                 "schema": self.schema,
+                "sslmode": self.sslmode,
             },
         }
 
