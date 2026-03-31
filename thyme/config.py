@@ -91,9 +91,14 @@ class Config:
                     break
 
         # Start from file values (or defaults)
+        api_base = file_data.get("api_base", cls.api_base)
+        api_url = file_data.get("api_url", None)
+        if api_url is None:
+            # Derive api_url from api_base when not explicitly set
+            api_url = api_base + "/api/v1/commit" if api_base != cls.api_base else cls.api_url
         config = cls(
-            api_url=file_data.get("api_url", cls.api_url),
-            api_base=file_data.get("api_base", cls.api_base),
+            api_url=api_url,
+            api_base=api_base,
             query_url=file_data.get("query_url", cls.query_url),
             api_key=file_data.get("api_key", cls.api_key),
         )
