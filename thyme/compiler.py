@@ -180,6 +180,7 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             user=config.get("user", ""),
             password=config.get("password", ""),
             schema=config.get("schema", "public"),
+            sslmode=config.get("sslmode", "prefer"),
         ))
     elif connector_type == "s3json":
         source.s3json.CopyFrom(connector_pb2.S3JsonSource(

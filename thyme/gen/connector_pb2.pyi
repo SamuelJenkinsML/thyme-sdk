@@ -16,7 +16,7 @@ class IcebergSource(_message.Message):
     def __init__(self, catalog: _Optional[str] = ..., database: _Optional[str] = ..., table: _Optional[str] = ...) -> None: ...
 
 class PostgresSource(_message.Message):
-    __slots__ = ("host", "port", "database", "table", "user", "password", "schema")
+    __slots__ = ("host", "port", "database", "table", "user", "password", "schema", "sslmode")
     HOST_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
     DATABASE_FIELD_NUMBER: _ClassVar[int]
@@ -24,6 +24,7 @@ class PostgresSource(_message.Message):
     USER_FIELD_NUMBER: _ClassVar[int]
     PASSWORD_FIELD_NUMBER: _ClassVar[int]
     SCHEMA_FIELD_NUMBER: _ClassVar[int]
+    SSLMODE_FIELD_NUMBER: _ClassVar[int]
     host: str
     port: int
     database: str
@@ -31,7 +32,8 @@ class PostgresSource(_message.Message):
     user: str
     password: str
     schema: str
-    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., database: _Optional[str] = ..., table: _Optional[str] = ..., user: _Optional[str] = ..., password: _Optional[str] = ..., schema: _Optional[str] = ...) -> None: ...
+    sslmode: str
+    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., database: _Optional[str] = ..., table: _Optional[str] = ..., user: _Optional[str] = ..., password: _Optional[str] = ..., schema: _Optional[str] = ..., sslmode: _Optional[str] = ...) -> None: ...
 
 class S3JsonSource(_message.Message):
     __slots__ = ("bucket", "prefix", "region")
