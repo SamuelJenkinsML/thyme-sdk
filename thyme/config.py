@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 CREDENTIALS_DIR = Path.home() / ".thyme"
 CREDENTIALS_FILE = CREDENTIALS_DIR / "credentials"
@@ -327,63 +329,7 @@ def _apply_env_overrides(config: Config) -> None:
 def _load_yaml(path: Path) -> dict[str, Any]:
     """Load a YAML config file. Returns empty dict on failure."""
     try:
-        import yaml
         with open(path) as f:
             return yaml.safe_load(f) or {}
-    except ImportError:
-        return _parse_simple_yaml(path)
     except Exception:
         return {}
-
-
-def _parse_simple_yaml(path: Path) -> dict[str, Any]:
-    """Minimal YAML-like parser for flat and one-level nested configs.
-
-    Handles::
-
-        key: value
-        section:
-          key: value
-    """
-    result: dict[str, Any] = {}
-    current_section: str | None = None
-
-    for line in path.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if ":" not in stripped:
-            continue
-
-        indent = len(line) - len(line.lstrip())
-        key, _, value = stripped.partition(":")
-        key = key.strip()
-        value = value.strip()
-
-        if indent == 0:
-            if value:
-                result[key] = _coerce(value)
-            else:
-                result[key] = {}
-                current_section = key
-        elif indent > 0 and current_section and isinstance(result.get(current_section), dict):
-            result[current_section][key] = _coerce(value)
-
-    return result
-
-
-def _coerce(value: str) -> str | int | float | bool:
-    """Coerce a YAML string value to its likely Python type."""
-    if value.lower() in ("true", "yes"):
-        return True
-    if value.lower() in ("false", "no"):
-        return False
-    try:
-        return int(value)
-    except ValueError:
-        pass
-    try:
-        return float(value)
-    except ValueError:
-        pass
-    return value

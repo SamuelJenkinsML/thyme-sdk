@@ -1,27 +1,34 @@
-from typing import Any, Callable, Optional
+from abc import ABC, abstractmethod
+from typing import Any, Callable
+
+from thyme.duration import parse_duration
 
 
-class IcebergSource:
-    """Configuration for an Iceberg table source."""
+class Connector(ABC):
+    """Abstract base for all source connectors."""
 
-    def __init__(self, catalog: str, database: str, table: str):
-        self.catalog = catalog
-        self.database = database
-        self.table = table
+    connector_type: str
+    required_fields: tuple[str, ...] = ()
 
+    @abstractmethod
     def to_dict(self) -> dict:
-        return {
-            "connector_type": "iceberg",
-            "config": {
-                "catalog": self.catalog,
-                "database": self.database,
-                "table": self.table,
-            },
-        }
+        """Return a dict with 'connector_type' and 'config' keys."""
+        ...
+
+    def validate(self) -> None:
+        """Validate that required fields are non-empty."""
+        for field_name in self.required_fields:
+            value = getattr(self, field_name, None)
+            if not value and value != 0:
+                raise ValueError(
+                    f"{self.__class__.__name__}: '{field_name}' must not be empty"
+                )
 
 
-class PostgresSource:
-    """Configuration for a Postgres table source."""
+class SQLSource(Connector):
+    """Base class for SQL database connectors."""
+
+    required_fields = ("host", "database", "table", "user", "password")
 
     def __init__(
         self,
@@ -42,10 +49,11 @@ class PostgresSource:
         self.password = password
         self.schema = schema
         self.sslmode = sslmode
+        self.validate()
 
     def to_dict(self) -> dict:
         return {
-            "connector_type": "postgres",
+            "connector_type": self.connector_type,
             "config": {
                 "host": self.host,
                 "port": self.port,
@@ -59,17 +67,66 @@ class PostgresSource:
         }
 
 
-class S3JsonSource:
+class IcebergSource(Connector):
+    """Configuration for an Iceberg table source."""
+
+    connector_type = "iceberg"
+    required_fields = ("catalog", "database", "table")
+
+    def __init__(self, catalog: str, database: str, table: str):
+        self.catalog = catalog
+        self.database = database
+        self.table = table
+        self.validate()
+
+    def to_dict(self) -> dict:
+        return {
+            "connector_type": self.connector_type,
+            "config": {
+                "catalog": self.catalog,
+                "database": self.database,
+                "table": self.table,
+            },
+        }
+
+
+class PostgresSource(SQLSource):
+    """Configuration for a Postgres table source."""
+
+    connector_type = "postgres"
+
+    def __init__(
+        self,
+        host: str,
+        port: int = 5432,
+        database: str = "",
+        table: str = "",
+        user: str = "",
+        password: str = "",
+        schema: str = "public",
+        sslmode: str = "prefer",
+    ):
+        super().__init__(
+            host=host, port=port, database=database, table=table,
+            user=user, password=password, schema=schema, sslmode=sslmode,
+        )
+
+
+class S3JsonSource(Connector):
     """Configuration for a JSON/JSONL files source stored in S3."""
+
+    connector_type = "s3json"
+    required_fields = ("bucket",)
 
     def __init__(self, bucket: str, prefix: str = "", region: str = "us-east-1"):
         self.bucket = bucket
         self.prefix = prefix
         self.region = region
+        self.validate()
 
     def to_dict(self) -> dict:
         return {
-            "connector_type": "s3json",
+            "connector_type": self.connector_type,
             "config": {
                 "bucket": self.bucket,
                 "prefix": self.prefix,
@@ -78,8 +135,11 @@ class S3JsonSource:
         }
 
 
-class KafkaSource:
+class KafkaSource(Connector):
     """Configuration for a Kafka topic source."""
+
+    connector_type = "kafka"
+    required_fields = ("brokers", "topic")
 
     _VALID_SECURITY_PROTOCOLS = {"PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"}
     _VALID_FORMATS = {"json", "avro", "protobuf"}
@@ -115,10 +175,11 @@ class KafkaSource:
         self.format = format
         self.group_id = group_id
         self.schema_registry_url = schema_registry_url
+        self.validate()
 
     def to_dict(self) -> dict:
         return {
-            "connector_type": "kafka",
+            "connector_type": self.connector_type,
             "config": {
                 "brokers": self.brokers,
                 "topic": self.topic,
@@ -163,13 +224,33 @@ def source(
             discarded. This sets the watermark for all downstream pipelines.
     """
 
+    if not isinstance(connector, Connector):
+        raise TypeError(
+            f"connector must be a Connector instance, got {type(connector).__name__}"
+        )
+
     _VALID_CDC_MODES = {"append", "debezium", "upsert"}
     if cdc not in _VALID_CDC_MODES:
         raise ValueError(
             f"Invalid cdc mode '{cdc}'. Must be one of {sorted(_VALID_CDC_MODES)}."
         )
 
+    for param_name, param_value in [("every", every), ("disorder", disorder)]:
+        if param_value:
+            try:
+                parse_duration(param_value)
+            except ValueError as e:
+                raise ValueError(f"Invalid {param_name} duration: {e}") from e
+
     def wrapper(cls: type) -> type:
+        if cursor and hasattr(cls, "_dataset_meta"):
+            field_names = {f["name"] for f in cls._dataset_meta["fields"]}
+            if cursor not in field_names:
+                raise ValueError(
+                    f"cursor '{cursor}' is not a field of dataset '{cls.__name__}'. "
+                    f"Available fields: {sorted(field_names)}"
+                )
+
         source_meta = connector.to_dict()
         source_meta["dataset"] = cls.__name__
         source_meta["cursor"] = cursor

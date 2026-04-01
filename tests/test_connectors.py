@@ -1,6 +1,10 @@
+from datetime import datetime
+
 import pytest
 
 from thyme.connectors import (
+    Connector,
+    SQLSource,
     IcebergSource,
     KafkaSource,
     PostgresSource,
@@ -9,6 +13,7 @@ from thyme.connectors import (
     clear_source_registry,
     get_registered_sources,
 )
+from thyme.dataset import dataset, field
 
 
 @pytest.fixture(autouse=True)
@@ -393,3 +398,185 @@ def test_kafka_source_registers_with_source_decorator():
     assert "KafkaDataset" in sources
     assert sources["KafkaDataset"]["connector_type"] == "kafka"
     assert sources["KafkaDataset"]["cursor"] == "ts"
+
+
+# ---------------------------------------------------------------------------
+# Connector ABC tests
+# ---------------------------------------------------------------------------
+
+
+class TestConnectorABC:
+    """Given the Connector ABC, subclasses should follow the contract."""
+
+    def test_connector_cannot_be_instantiated(self):
+        with pytest.raises(TypeError):
+            Connector()
+
+    def test_iceberg_is_connector(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+        assert isinstance(src, Connector)
+
+    def test_postgres_is_connector(self):
+        src = PostgresSource(host="h", port=5432, database="d", table="t", user="u", password="p")
+        assert isinstance(src, Connector)
+
+    def test_s3json_is_connector(self):
+        src = S3JsonSource(bucket="b")
+        assert isinstance(src, Connector)
+
+    def test_postgres_is_sql_source(self):
+        src = PostgresSource(host="h", port=5432, database="d", table="t", user="u", password="p")
+        assert isinstance(src, SQLSource)
+
+    def test_iceberg_is_not_sql_source(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+        assert not isinstance(src, SQLSource)
+
+    def test_connector_type_iceberg(self):
+        assert IcebergSource.connector_type == "iceberg"
+
+    def test_connector_type_postgres(self):
+        assert PostgresSource.connector_type == "postgres"
+
+    def test_connector_type_s3json(self):
+        assert S3JsonSource.connector_type == "s3json"
+
+
+# ---------------------------------------------------------------------------
+# Constructor validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestConstructorValidation:
+    """Given empty required fields, constructors should raise ValueError."""
+
+    def test_iceberg_empty_catalog_raises(self):
+        with pytest.raises(ValueError, match="catalog"):
+            IcebergSource(catalog="", database="d", table="t")
+
+    def test_iceberg_empty_table_raises(self):
+        with pytest.raises(ValueError, match="table"):
+            IcebergSource(catalog="c", database="d", table="")
+
+    def test_postgres_empty_host_raises(self):
+        with pytest.raises(ValueError, match="host"):
+            PostgresSource(host="", port=5432, database="d", table="t", user="u", password="p")
+
+    def test_postgres_empty_password_raises(self):
+        with pytest.raises(ValueError, match="password"):
+            PostgresSource(host="h", port=5432, database="d", table="t", user="u", password="")
+
+    def test_s3_empty_bucket_raises(self):
+        with pytest.raises(ValueError, match="bucket"):
+            S3JsonSource(bucket="")
+
+    def test_s3_empty_prefix_is_ok(self):
+        # prefix is optional, defaults to ""
+        src = S3JsonSource(bucket="b", prefix="")
+        assert src.prefix == ""
+
+
+# ---------------------------------------------------------------------------
+# Duration validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestSourceDurationValidation:
+    """Given invalid duration strings, @source should raise ValueError."""
+
+    def test_valid_every_accepted(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+
+        @source(src, cursor="ts", every="5m")
+        @dataset(version=1)
+        class D:
+            id: str = field(key=True)
+            ts: datetime = field(timestamp=True)
+
+    def test_invalid_every_raises(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+
+        with pytest.raises(ValueError, match="every"):
+            @source(src, cursor="ts", every="badvalue")
+            @dataset(version=1)
+            class D:
+                id: str = field(key=True)
+                ts: datetime = field(timestamp=True)
+
+    def test_invalid_disorder_raises(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+
+        with pytest.raises(ValueError, match="disorder"):
+            @source(src, cursor="ts", disorder="xyz")
+            @dataset(version=1)
+            class D:
+                id: str = field(key=True)
+                ts: datetime = field(timestamp=True)
+
+    def test_empty_every_is_ok(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+
+        @source(src, cursor="ts", every="")
+        @dataset(version=1)
+        class D:
+            id: str = field(key=True)
+            ts: datetime = field(timestamp=True)
+
+
+# ---------------------------------------------------------------------------
+# Cursor validation tests
+# ---------------------------------------------------------------------------
+
+
+class TestSourceCursorValidation:
+    """Given cursor field names, @source should validate against dataset fields."""
+
+    def test_cursor_matches_dataset_field(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+
+        @source(src, cursor="ts")
+        @dataset(version=1)
+        class D:
+            id: str = field(key=True)
+            ts: datetime = field(timestamp=True)
+
+    def test_cursor_not_in_dataset_raises(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+
+        with pytest.raises(ValueError, match="nonexistent"):
+            @source(src, cursor="nonexistent")
+            @dataset(version=1)
+            class D:
+                id: str = field(key=True)
+                ts: datetime = field(timestamp=True)
+
+    def test_empty_cursor_skips_validation(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+
+        @source(src, cursor="")
+        @dataset(version=1)
+        class D:
+            id: str = field(key=True)
+            ts: datetime = field(timestamp=True)
+
+    def test_source_without_dataset_skips_cursor_validation(self):
+        src = IcebergSource(catalog="c", database="d", table="t")
+
+        @source(src, cursor="whatever")
+        class D:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Connector type check tests
+# ---------------------------------------------------------------------------
+
+
+class TestSourceConnectorTypeCheck:
+    """Given a non-Connector argument, @source should raise TypeError."""
+
+    def test_non_connector_raises_type_error(self):
+        with pytest.raises(TypeError, match="Connector"):
+            @source({"not": "a connector"}, cursor="ts")
+            class D:
+                pass

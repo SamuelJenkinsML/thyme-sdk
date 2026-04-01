@@ -196,6 +196,23 @@ class TestCredentialIntegrationWithConfig:
         assert config.api_key == "tk_yaml_wins"
 
 
+class TestYamlDeepNesting:
+    """Given deeply nested YAML, Config.load() should parse correctly."""
+
+    def test_deeply_nested_yaml(self, tmp_path):
+        yaml_file = tmp_path / ".thyme.yaml"
+        yaml_file.write_text(
+            "api_key: tk_deep\n"
+            "postgres:\n"
+            "  host: db.example.com\n"
+            "  port: 5432\n"
+        )
+        config = Config.load(path=yaml_file)
+        assert config.api_key == "tk_deep"
+        assert config.postgres.host == "db.example.com"
+        assert config.postgres.port == 5432
+
+
 class TestConnectorFactories:
     """Given a Config, factory methods should create correctly configured connectors."""
 
