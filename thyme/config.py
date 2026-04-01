@@ -14,11 +14,17 @@ Usage::
     config = Config.load()
     source = config.postgres_source(table="orders")
 """
+
+from __future__ import annotations
+
 import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from thyme.connectors import IcebergSource, KafkaSource, PostgresSource, S3JsonSource
 
 
 CREDENTIALS_DIR = Path.home() / ".thyme"

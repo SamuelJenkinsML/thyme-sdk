@@ -1,6 +1,5 @@
 import inspect
 import textwrap
-from dataclasses import dataclass
 from typing import Any, Callable, List, Optional
 
 

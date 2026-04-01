@@ -1,14 +1,6 @@
 """Tests for thyme.config — Config loading, env overrides, and credential storage."""
-import json
-import os
-from pathlib import Path
-
-import pytest
-
 from thyme.config import (
     Config,
-    PostgresConfig,
-    S3Config,
     clear_credentials,
     load_credentials,
     save_credentials,

@@ -1,6 +1,5 @@
 """Compiler: converts SDK registry objects to protobuf CommitRequest."""
-import inspect
-from typing import Any, List, Optional
+from typing import List
 
 from thyme.gen import (
     connector_pb2,

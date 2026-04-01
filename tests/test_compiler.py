@@ -8,8 +8,6 @@ from thyme.compiler import (
     compile_commit_request,
 )
 from thyme.gen import (
-    dataset_pb2,
-    featureset_pb2,
     services_pb2,
 )
 

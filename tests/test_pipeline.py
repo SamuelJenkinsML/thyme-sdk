@@ -1,4 +1,4 @@
-from thyme.pipeline import pipeline, inputs, Avg, Count, Sum, PipelineNode, Pipeline
+from thyme.pipeline import pipeline, inputs, Avg, Count, Sum, PipelineNode
 
 
 def test_avg_op_has_correct_type():

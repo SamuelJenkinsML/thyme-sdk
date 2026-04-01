@@ -26,5 +26,8 @@ dev = [
 [tool.uv]
 package = true
 
+[tool.ruff]
+exclude = ["thyme/gen", ".claude"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

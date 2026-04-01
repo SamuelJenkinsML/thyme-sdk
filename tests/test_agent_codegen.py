@@ -1,5 +1,4 @@
 """Tests for thyme.agent.codegen — LLM-powered code generation."""
-import pytest
 from unittest.mock import MagicMock, patch
 
 

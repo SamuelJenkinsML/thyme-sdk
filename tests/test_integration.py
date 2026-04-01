@@ -10,10 +10,6 @@ import pytest
 
 from thyme.compiler import (
     compile_commit_request,
-    compile_dataset,
-    compile_featureset,
-    compile_pipeline,
-    compile_source,
 )
 from thyme.dataset import clear_registry, get_registered_datasets
 from thyme.featureset import clear_featureset_registry, get_registered_featuresets

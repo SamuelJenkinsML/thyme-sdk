@@ -1,13 +1,11 @@
 """Tests for data expectation functions and @expectations decorator."""
 from datetime import datetime
 
-import pytest
 
 from thyme.expectations import (
     expect_column_values_to_be_between,
     expect_column_values_to_not_be_null,
     expect_column_values_to_be_in_set,
-    expect_column_values_to_be_of_type,
     expectations,
 )
 

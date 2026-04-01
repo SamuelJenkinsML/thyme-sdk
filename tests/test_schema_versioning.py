@@ -1,20 +1,15 @@
 """Unit tests for schema versioning: optional flag propagation through SDK."""
-from dataclasses import fields as dc_fields
 from typing import Optional
 from datetime import datetime
 
-import pytest
 
 from thyme.dataset import (
     Field,
-    _build_schema,
-    _is_optional,
     dataset,
     field,
     clear_registry,
 )
 from thyme.compiler import compile_dataset
-from thyme.gen import schema_pb2
 
 
 # --- _build_schema tests ---
@@ -27,7 +22,6 @@ class _StubUserEvents:
 
 def _make_dataset_cls():
     """Build a real @dataset-decorated class with an Optional field."""
-    from dataclasses import dataclass
 
     @dataset(version=1)
     class UserEvents:
