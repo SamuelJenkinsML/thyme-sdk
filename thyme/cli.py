@@ -380,7 +380,7 @@ def logout() -> None:
 
 @app.command()
 def discover(
-    source_type: str = typer.Option("iceberg", "--source-type", help="Connector type: iceberg, postgres, s3json, jsonl"),
+    source_type: str = typer.Option("iceberg", "--source-type", help="Connector type: iceberg, postgres, s3json, kafka, jsonl"),
     use_case: str = typer.Option(..., "--use-case", "-u", help="Feature engineering use case (e.g. 'fraud detection')"),
     # Iceberg options
     catalog: Optional[str] = typer.Option(None, "--catalog", help="Iceberg catalog URI"),
@@ -398,6 +398,11 @@ def discover(
     s3_bucket: Optional[str] = typer.Option(None, "--s3-bucket", help="S3 bucket name"),
     s3_prefix: str = typer.Option("", "--s3-prefix", help="S3 key prefix"),
     s3_region: str = typer.Option("us-east-1", "--s3-region", help="AWS region"),
+    # Kafka options
+    kafka_brokers: Optional[str] = typer.Option(None, "--kafka-brokers", help="Kafka broker addresses"),
+    kafka_topic: Optional[str] = typer.Option(None, "--kafka-topic", help="Kafka topic name"),
+    kafka_security_protocol: str = typer.Option("PLAINTEXT", "--kafka-security-protocol", help="Security protocol: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL"),
+    kafka_format: str = typer.Option("json", "--kafka-format", help="Message format: json, avro, protobuf"),
     # JSONL options
     path: Optional[str] = typer.Option(None, "--path", help="Local JSONL file path"),
     # Generation options
@@ -420,6 +425,7 @@ def discover(
         from thyme.agent.introspect import (
             introspect_iceberg,
             introspect_jsonl,
+            introspect_kafka,
             introspect_postgres,
             introspect_s3json,
         )
@@ -469,6 +475,21 @@ def discover(
                 "config": {"bucket": s3_bucket, "prefix": s3_prefix, "region": s3_region},
             }
 
+        elif st == "kafka":
+            if not (kafka_brokers and kafka_topic):
+                typer.echo("Error: --kafka-brokers and --kafka-topic are required for kafka source.", err=True)
+                raise typer.Exit(1)
+            schema = introspect_kafka(kafka_brokers, kafka_topic, kafka_format, sample_n=sample_n)
+            connector_dict = {
+                "connector_type": "kafka",
+                "config": {
+                    "brokers": kafka_brokers,
+                    "topic": kafka_topic,
+                    "security_protocol": kafka_security_protocol,
+                    "format": kafka_format,
+                },
+            }
+
         elif st == "jsonl":
             if not path:
                 typer.echo("Error: --path is required for jsonl source.", err=True)
@@ -477,7 +498,7 @@ def discover(
             connector_dict = {"connector_type": "jsonl", "config": {"path": path}}
 
         else:
-            typer.echo(f"Error: unknown source type '{source_type}'. Choose: iceberg, postgres, s3json, jsonl.", err=True)
+            typer.echo(f"Error: unknown source type '{source_type}'. Choose: iceberg, postgres, s3json, kafka, jsonl.", err=True)
             raise typer.Exit(1)
 
     except typer.Exit:

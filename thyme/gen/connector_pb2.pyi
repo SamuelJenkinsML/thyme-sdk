@@ -45,8 +45,30 @@ class S3JsonSource(_message.Message):
     region: str
     def __init__(self, bucket: _Optional[str] = ..., prefix: _Optional[str] = ..., region: _Optional[str] = ...) -> None: ...
 
+class KafkaSource(_message.Message):
+    __slots__ = ("brokers", "topic", "security_protocol", "sasl_mechanism", "sasl_username", "sasl_password", "format", "group_id", "schema_registry_url")
+    BROKERS_FIELD_NUMBER: _ClassVar[int]
+    TOPIC_FIELD_NUMBER: _ClassVar[int]
+    SECURITY_PROTOCOL_FIELD_NUMBER: _ClassVar[int]
+    SASL_MECHANISM_FIELD_NUMBER: _ClassVar[int]
+    SASL_USERNAME_FIELD_NUMBER: _ClassVar[int]
+    SASL_PASSWORD_FIELD_NUMBER: _ClassVar[int]
+    FORMAT_FIELD_NUMBER: _ClassVar[int]
+    GROUP_ID_FIELD_NUMBER: _ClassVar[int]
+    SCHEMA_REGISTRY_URL_FIELD_NUMBER: _ClassVar[int]
+    brokers: str
+    topic: str
+    security_protocol: str
+    sasl_mechanism: str
+    sasl_username: str
+    sasl_password: str
+    format: str
+    group_id: str
+    schema_registry_url: str
+    def __init__(self, brokers: _Optional[str] = ..., topic: _Optional[str] = ..., security_protocol: _Optional[str] = ..., sasl_mechanism: _Optional[str] = ..., sasl_username: _Optional[str] = ..., sasl_password: _Optional[str] = ..., format: _Optional[str] = ..., group_id: _Optional[str] = ..., schema_registry_url: _Optional[str] = ...) -> None: ...
+
 class Source(_message.Message):
-    __slots__ = ("dataset", "cursor", "every", "disorder", "cdc", "iceberg", "postgres", "s3json")
+    __slots__ = ("dataset", "cursor", "every", "disorder", "cdc", "iceberg", "postgres", "s3json", "kafka")
     DATASET_FIELD_NUMBER: _ClassVar[int]
     CURSOR_FIELD_NUMBER: _ClassVar[int]
     EVERY_FIELD_NUMBER: _ClassVar[int]
@@ -55,6 +77,7 @@ class Source(_message.Message):
     ICEBERG_FIELD_NUMBER: _ClassVar[int]
     POSTGRES_FIELD_NUMBER: _ClassVar[int]
     S3JSON_FIELD_NUMBER: _ClassVar[int]
+    KAFKA_FIELD_NUMBER: _ClassVar[int]
     dataset: str
     cursor: str
     every: str
@@ -63,4 +86,5 @@ class Source(_message.Message):
     iceberg: IcebergSource
     postgres: PostgresSource
     s3json: S3JsonSource
-    def __init__(self, dataset: _Optional[str] = ..., cursor: _Optional[str] = ..., every: _Optional[str] = ..., disorder: _Optional[str] = ..., cdc: _Optional[str] = ..., iceberg: _Optional[_Union[IcebergSource, _Mapping]] = ..., postgres: _Optional[_Union[PostgresSource, _Mapping]] = ..., s3json: _Optional[_Union[S3JsonSource, _Mapping]] = ...) -> None: ...
+    kafka: KafkaSource
+    def __init__(self, dataset: _Optional[str] = ..., cursor: _Optional[str] = ..., every: _Optional[str] = ..., disorder: _Optional[str] = ..., cdc: _Optional[str] = ..., iceberg: _Optional[_Union[IcebergSource, _Mapping]] = ..., postgres: _Optional[_Union[PostgresSource, _Mapping]] = ..., s3json: _Optional[_Union[S3JsonSource, _Mapping]] = ..., kafka: _Optional[_Union[KafkaSource, _Mapping]] = ...) -> None: ...

@@ -2,6 +2,7 @@ import pytest
 
 from thyme.connectors import (
     IcebergSource,
+    KafkaSource,
     PostgresSource,
     S3JsonSource,
     source,
@@ -259,3 +260,136 @@ def test_s3json_source_registers_with_source_decorator():
     # Then: correctly registered
     assert "S3Dataset" in sources
     assert sources["S3Dataset"]["connector_type"] == "s3json"
+
+
+# ---------------------------------------------------------------------------
+# KafkaSource tests
+# ---------------------------------------------------------------------------
+
+def test_kafka_source_to_dict_connector_type():
+    # Given: a KafkaSource with required fields
+    src = KafkaSource(brokers="kafka:9092", topic="raw-events")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: connector_type is "kafka"
+    assert d["connector_type"] == "kafka"
+
+
+def test_kafka_source_to_dict_config_fields():
+    # Given: a KafkaSource with all fields
+    src = KafkaSource(
+        brokers="kafka:9092,kafka:9093",
+        topic="raw-events",
+        security_protocol="SASL_SSL",
+        sasl_mechanism="PLAIN",
+        sasl_username="user",
+        sasl_password="pass",
+        format="avro",
+        group_id="my-group",
+        schema_registry_url="http://registry:8081",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: config contains all fields with correct values
+    cfg = d["config"]
+    assert cfg["brokers"] == "kafka:9092,kafka:9093"
+    assert cfg["topic"] == "raw-events"
+    assert cfg["security_protocol"] == "SASL_SSL"
+    assert cfg["sasl_mechanism"] == "PLAIN"
+    assert cfg["sasl_username"] == "user"
+    assert cfg["sasl_password"] == "pass"
+    assert cfg["format"] == "avro"
+    assert cfg["group_id"] == "my-group"
+    assert cfg["schema_registry_url"] == "http://registry:8081"
+
+
+def test_kafka_source_default_security_protocol_is_plaintext():
+    # Given: a KafkaSource without explicit security_protocol
+    src = KafkaSource(brokers="kafka:9092", topic="events")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: security_protocol defaults to "PLAINTEXT"
+    assert d["config"]["security_protocol"] == "PLAINTEXT"
+
+
+def test_kafka_source_default_format_is_json():
+    # Given: a KafkaSource without explicit format
+    src = KafkaSource(brokers="kafka:9092", topic="events")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: format defaults to "json"
+    assert d["config"]["format"] == "json"
+
+
+def test_kafka_source_default_sasl_fields_are_empty():
+    # Given: a KafkaSource without SASL fields
+    src = KafkaSource(brokers="kafka:9092", topic="events")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: SASL fields default to empty string
+    assert d["config"]["sasl_mechanism"] == ""
+    assert d["config"]["sasl_username"] == ""
+    assert d["config"]["sasl_password"] == ""
+
+
+def test_kafka_source_default_group_id_is_empty():
+    # Given: a KafkaSource without group_id
+    src = KafkaSource(brokers="kafka:9092", topic="events")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: group_id defaults to ""
+    assert d["config"]["group_id"] == ""
+
+
+def test_kafka_source_default_schema_registry_url_is_empty():
+    # Given: a KafkaSource without schema_registry_url
+    src = KafkaSource(brokers="kafka:9092", topic="events")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: schema_registry_url defaults to ""
+    assert d["config"]["schema_registry_url"] == ""
+
+
+def test_kafka_source_invalid_security_protocol_raises():
+    # Given/When: creating KafkaSource with invalid security_protocol
+    # Then: ValueError is raised
+    with pytest.raises(ValueError, match="security_protocol"):
+        KafkaSource(brokers="kafka:9092", topic="events", security_protocol="INVALID")
+
+
+def test_kafka_source_invalid_format_raises():
+    # Given/When: creating KafkaSource with invalid format
+    # Then: ValueError is raised
+    with pytest.raises(ValueError, match="format"):
+        KafkaSource(brokers="kafka:9092", topic="events", format="xml")
+
+
+def test_kafka_source_registers_with_source_decorator():
+    # Given: a KafkaSource attached to a dataset
+    kafka_src = KafkaSource(brokers="kafka:9092", topic="raw-events")
+
+    @source(kafka_src, cursor="ts", every="1m", cdc="append")
+    class KafkaDataset:
+        pass
+
+    # When: reading registered sources
+    sources = get_registered_sources()
+
+    # Then: correctly registered
+    assert "KafkaDataset" in sources
+    assert sources["KafkaDataset"]["connector_type"] == "kafka"
+    assert sources["KafkaDataset"]["cursor"] == "ts"

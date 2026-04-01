@@ -53,6 +53,19 @@ class IcebergConfig:
 
 
 @dataclass
+class KafkaConfig:
+    """Kafka connection settings."""
+    brokers: str = ""
+    security_protocol: str = "PLAINTEXT"
+    sasl_mechanism: str = ""
+    sasl_username: str = ""
+    sasl_password: str = ""
+    format: str = "json"
+    group_id: str = ""
+    schema_registry_url: str = ""
+
+
+@dataclass
 class Config:
     """Thyme infrastructure configuration.
 
@@ -67,6 +80,7 @@ class Config:
     postgres: PostgresConfig = field(default_factory=PostgresConfig)
     s3: S3Config = field(default_factory=S3Config)
     iceberg: IcebergConfig = field(default_factory=IcebergConfig)
+    kafka: KafkaConfig = field(default_factory=KafkaConfig)
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "Config":
@@ -130,6 +144,19 @@ class Config:
             database=ice.get("database", IcebergConfig.database),
         )
 
+        # Kafka
+        kfk = file_data.get("kafka", {})
+        config.kafka = KafkaConfig(
+            brokers=kfk.get("brokers", KafkaConfig.brokers),
+            security_protocol=kfk.get("security_protocol", KafkaConfig.security_protocol),
+            sasl_mechanism=kfk.get("sasl_mechanism", KafkaConfig.sasl_mechanism),
+            sasl_username=kfk.get("sasl_username", KafkaConfig.sasl_username),
+            sasl_password=kfk.get("sasl_password", KafkaConfig.sasl_password),
+            format=kfk.get("format", KafkaConfig.format),
+            group_id=kfk.get("group_id", KafkaConfig.group_id),
+            schema_registry_url=kfk.get("schema_registry_url", KafkaConfig.schema_registry_url),
+        )
+
         # Stored credentials (lowest priority for api_key/api_base)
         creds = load_credentials()
         if creds:
@@ -183,6 +210,21 @@ class Config:
             catalog=self.iceberg.catalog,
             database=database or self.iceberg.database,
             table=table,
+        )
+
+    def kafka_source(self, topic: str) -> "KafkaSource":
+        """Create a KafkaSource from this config's Kafka settings."""
+        from thyme.connectors import KafkaSource
+        return KafkaSource(
+            brokers=self.kafka.brokers,
+            topic=topic,
+            security_protocol=self.kafka.security_protocol,
+            sasl_mechanism=self.kafka.sasl_mechanism,
+            sasl_username=self.kafka.sasl_username,
+            sasl_password=self.kafka.sasl_password,
+            format=self.kafka.format,
+            group_id=self.kafka.group_id,
+            schema_registry_url=self.kafka.schema_registry_url,
         )
 
 
@@ -260,6 +302,21 @@ def _apply_env_overrides(config: Config) -> None:
         val = os.environ.get(key)
         if val is not None:
             setattr(config.s3, attr, fn(val))
+
+    kafka = {
+        "THYME_KAFKA_BROKERS": ("brokers", str),
+        "THYME_KAFKA_SECURITY_PROTOCOL": ("security_protocol", str),
+        "THYME_KAFKA_SASL_MECHANISM": ("sasl_mechanism", str),
+        "THYME_KAFKA_SASL_USERNAME": ("sasl_username", str),
+        "THYME_KAFKA_SASL_PASSWORD": ("sasl_password", str),
+        "THYME_KAFKA_FORMAT": ("format", str),
+        "THYME_KAFKA_GROUP_ID": ("group_id", str),
+        "THYME_KAFKA_SCHEMA_REGISTRY_URL": ("schema_registry_url", str),
+    }
+    for key, (attr, fn) in kafka.items():
+        val = os.environ.get(key)
+        if val is not None:
+            setattr(config.kafka, attr, fn(val))
 
 
 # ---------------------------------------------------------------------------

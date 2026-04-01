@@ -72,6 +72,7 @@ class TestConfigFromYaml:
 
     def test_missing_file_returns_defaults(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("thyme.config.CREDENTIALS_FILE", tmp_path / "nonexistent")
         config = Config.load()
         assert config.api_url == "http://localhost:8080/api/v1/commit"
 
@@ -105,6 +106,13 @@ class TestConfigEnvOverrides:
         config = Config.load()
         assert config.s3.bucket == "my-bucket"
         assert config.s3.region == "eu-west-1"
+
+    def test_kafka_from_env(self, monkeypatch):
+        monkeypatch.setenv("THYME_KAFKA_BROKERS", "kafka:9092")
+        monkeypatch.setenv("THYME_KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
+        config = Config.load()
+        assert config.kafka.brokers == "kafka:9092"
+        assert config.kafka.security_protocol == "SASL_SSL"
 
 
 class TestCredentialStorage:
@@ -222,3 +230,20 @@ class TestConnectorFactories:
         assert d["connector_type"] == "iceberg"
         assert d["config"]["catalog"] == "prod"
         assert d["config"]["table"] == "orders"
+
+    def test_kafka_source(self):
+        config = Config()
+        config.kafka.brokers = "kafka:9092"
+        config.kafka.security_protocol = "SASL_SSL"
+        config.kafka.sasl_mechanism = "PLAIN"
+        config.kafka.sasl_username = "user"
+        config.kafka.sasl_password = "pass"
+        source = config.kafka_source(topic="raw-events")
+        d = source.to_dict()
+        assert d["connector_type"] == "kafka"
+        assert d["config"]["brokers"] == "kafka:9092"
+        assert d["config"]["topic"] == "raw-events"
+        assert d["config"]["security_protocol"] == "SASL_SSL"
+        assert d["config"]["sasl_mechanism"] == "PLAIN"
+        assert d["config"]["sasl_username"] == "user"
+        assert d["config"]["sasl_password"] == "pass"

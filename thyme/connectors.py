@@ -78,6 +78,61 @@ class S3JsonSource:
         }
 
 
+class KafkaSource:
+    """Configuration for a Kafka topic source."""
+
+    _VALID_SECURITY_PROTOCOLS = {"PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"}
+    _VALID_FORMATS = {"json", "avro", "protobuf"}
+
+    def __init__(
+        self,
+        brokers: str,
+        topic: str,
+        security_protocol: str = "PLAINTEXT",
+        sasl_mechanism: str = "",
+        sasl_username: str = "",
+        sasl_password: str = "",
+        format: str = "json",
+        group_id: str = "",
+        schema_registry_url: str = "",
+    ):
+        if security_protocol not in self._VALID_SECURITY_PROTOCOLS:
+            raise ValueError(
+                f"Invalid security_protocol '{security_protocol}'. "
+                f"Must be one of {sorted(self._VALID_SECURITY_PROTOCOLS)}."
+            )
+        if format not in self._VALID_FORMATS:
+            raise ValueError(
+                f"Invalid format '{format}'. "
+                f"Must be one of {sorted(self._VALID_FORMATS)}."
+            )
+        self.brokers = brokers
+        self.topic = topic
+        self.security_protocol = security_protocol
+        self.sasl_mechanism = sasl_mechanism
+        self.sasl_username = sasl_username
+        self.sasl_password = sasl_password
+        self.format = format
+        self.group_id = group_id
+        self.schema_registry_url = schema_registry_url
+
+    def to_dict(self) -> dict:
+        return {
+            "connector_type": "kafka",
+            "config": {
+                "brokers": self.brokers,
+                "topic": self.topic,
+                "security_protocol": self.security_protocol,
+                "sasl_mechanism": self.sasl_mechanism,
+                "sasl_username": self.sasl_username,
+                "sasl_password": self.sasl_password,
+                "format": self.format,
+                "group_id": self.group_id,
+                "schema_registry_url": self.schema_registry_url,
+            },
+        }
+
+
 _SOURCE_REGISTRY: dict[str, dict] = {}
 
 

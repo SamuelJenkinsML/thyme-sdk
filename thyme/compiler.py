@@ -188,6 +188,18 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             prefix=config.get("prefix", ""),
             region=config.get("region", "us-east-1"),
         ))
+    elif connector_type == "kafka":
+        source.kafka.CopyFrom(connector_pb2.KafkaSource(
+            brokers=config.get("brokers", ""),
+            topic=config.get("topic", ""),
+            security_protocol=config.get("security_protocol", "PLAINTEXT"),
+            sasl_mechanism=config.get("sasl_mechanism", ""),
+            sasl_username=config.get("sasl_username", ""),
+            sasl_password=config.get("sasl_password", ""),
+            format=config.get("format", "json"),
+            group_id=config.get("group_id", ""),
+            schema_registry_url=config.get("schema_registry_url", ""),
+        ))
     return source
 
 

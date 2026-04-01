@@ -162,6 +162,48 @@ def test_compile_source_cdc_defaults_to_append():
     assert proto.cdc == "append"
 
 
+def test_compile_source_kafka():
+    # Given: a Kafka source metadata dict
+    src_meta = {
+        "dataset": "RawEvents",
+        "connector_type": "kafka",
+        "config": {
+            "brokers": "kafka:9092,kafka:9093",
+            "topic": "raw-events",
+            "security_protocol": "SASL_SSL",
+            "sasl_mechanism": "PLAIN",
+            "sasl_username": "user",
+            "sasl_password": "pass",
+            "format": "json",
+            "group_id": "my-group",
+            "schema_registry_url": "http://registry:8081",
+        },
+        "cursor": "event_time",
+        "every": "1m",
+        "disorder": "5m",
+        "cdc": "append",
+    }
+
+    # When: compiling to proto
+    proto = compile_source(src_meta)
+
+    # Then: proto fields are populated correctly
+    assert proto.dataset == "RawEvents"
+    assert proto.cursor == "event_time"
+    assert proto.every == "1m"
+    assert proto.disorder == "5m"
+    assert proto.cdc == "append"
+    assert proto.kafka.brokers == "kafka:9092,kafka:9093"
+    assert proto.kafka.topic == "raw-events"
+    assert proto.kafka.security_protocol == "SASL_SSL"
+    assert proto.kafka.sasl_mechanism == "PLAIN"
+    assert proto.kafka.sasl_username == "user"
+    assert proto.kafka.sasl_password == "pass"
+    assert proto.kafka.format == "json"
+    assert proto.kafka.group_id == "my-group"
+    assert proto.kafka.schema_registry_url == "http://registry:8081"
+
+
 def test_compile_dataset_with_expectations():
     ds_meta = {
         "name": "Review",

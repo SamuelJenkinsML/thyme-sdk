@@ -150,6 +150,71 @@ def introspect_s3json(
     return IntrospectedSchema(fields=fields, sample_rows=sample_rows)
 
 
+def introspect_kafka(
+    brokers: str,
+    topic: str,
+    format: str = "json",
+    sample_n: int = 5,
+) -> IntrospectedSchema:
+    """Introspect a Kafka topic by consuming sample messages.
+
+    Requires the ``confluent-kafka`` package. Install with:
+        pip install confluent-kafka
+    """
+    try:
+        from confluent_kafka import Consumer
+    except ImportError:
+        raise ImportError(
+            "Kafka introspection requires confluent-kafka. "
+            "Install with: pip install confluent-kafka"
+        )
+
+    import json as json_mod
+    import uuid
+
+    consumer = Consumer({
+        "bootstrap.servers": brokers,
+        "group.id": f"thyme-introspect-{uuid.uuid4().hex[:8]}",
+        "auto.offset.reset": "earliest",
+        "enable.auto.commit": False,
+    })
+    consumer.subscribe([topic])
+
+    rows: list[dict] = []
+    try:
+        for _ in range(sample_n * 10):  # poll up to 10x to get enough messages
+            msg = consumer.poll(timeout=5.0)
+            if msg is None:
+                break
+            if msg.error():
+                continue
+            if format == "json":
+                rows.append(json_mod.loads(msg.value().decode("utf-8")))
+            if len(rows) >= sample_n:
+                break
+    finally:
+        consumer.close()
+
+    if not rows:
+        return IntrospectedSchema()
+
+    # Infer fields from first message
+    sample = rows[0]
+    fields = []
+    for key, value in sample.items():
+        if isinstance(value, bool):
+            t = "bool"
+        elif isinstance(value, int):
+            t = "int"
+        elif isinstance(value, float):
+            t = "float"
+        else:
+            t = "str"
+        fields.append(IntrospectedField(name=key, type=t))
+
+    return IntrospectedSchema(fields=fields, sample_rows=rows)
+
+
 def introspect_schema(connector: Any, sample_n: int = 5) -> IntrospectedSchema:
     """Introspect a source connector and return its schema.
 
@@ -170,6 +235,10 @@ def introspect_schema(connector: Any, sample_n: int = 5) -> IntrospectedSchema:
     if ct == "s3json":
         return introspect_s3json(
             cfg["bucket"], cfg.get("prefix", ""), cfg.get("region", "us-east-1"), sample_n,
+        )
+    if ct == "kafka":
+        return introspect_kafka(
+            cfg["brokers"], cfg["topic"], cfg.get("format", "json"), sample_n,
         )
     if ct == "jsonl":
         return introspect_jsonl(cfg["path"], sample_n)
