@@ -199,6 +199,14 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             group_id=config.get("group_id", ""),
             schema_registry_url=config.get("schema_registry_url", ""),
         ))
+    elif connector_type == "kinesis":
+        source.kinesis.CopyFrom(connector_pb2.KinesisSource(
+            stream_arn=config.get("stream_arn", ""),
+            role_arn=config.get("role_arn", ""),
+            region=config.get("region", "us-east-1"),
+            init_position=config.get("init_position", "latest"),
+            format=config.get("format", "json"),
+        ))
     return source
 
 

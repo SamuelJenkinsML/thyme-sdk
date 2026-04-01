@@ -239,3 +239,43 @@ class TestConnectorFactories:
         assert d["config"]["sasl_mechanism"] == "PLAIN"
         assert d["config"]["sasl_username"] == "user"
         assert d["config"]["sasl_password"] == "pass"
+
+    def test_kinesis_source(self):
+        config = Config()
+        config.kinesis.role_arn = "arn:aws:iam::123:role/reader"
+        config.kinesis.region = "eu-west-1"
+        source = config.kinesis_source(stream_arn="arn:aws:kinesis:eu-west-1:123:stream/events")
+        d = source.to_dict()
+        assert d["connector_type"] == "kinesis"
+        assert d["config"]["stream_arn"] == "arn:aws:kinesis:eu-west-1:123:stream/events"
+        assert d["config"]["role_arn"] == "arn:aws:iam::123:role/reader"
+        assert d["config"]["region"] == "eu-west-1"
+
+
+class TestKinesisConfigDefaults:
+    """Given no overrides, KinesisConfig should have sensible defaults."""
+
+    def test_default_stream_arn_is_empty(self):
+        config = Config()
+        assert config.kinesis.stream_arn == ""
+
+    def test_default_role_arn_is_empty(self):
+        config = Config()
+        assert config.kinesis.role_arn == ""
+
+    def test_default_region_is_us_east_1(self):
+        config = Config()
+        assert config.kinesis.region == "us-east-1"
+
+
+class TestKinesisEnvOverrides:
+    """Given THYME_KINESIS_* env vars, they should override defaults."""
+
+    def test_kinesis_from_env(self, monkeypatch):
+        monkeypatch.setenv("THYME_KINESIS_STREAM_ARN", "arn:aws:kinesis:us-east-1:123:stream/s")
+        monkeypatch.setenv("THYME_KINESIS_ROLE_ARN", "arn:aws:iam::123:role/r")
+        monkeypatch.setenv("THYME_KINESIS_REGION", "ap-southeast-1")
+        config = Config.load()
+        assert config.kinesis.stream_arn == "arn:aws:kinesis:us-east-1:123:stream/s"
+        assert config.kinesis.role_arn == "arn:aws:iam::123:role/r"
+        assert config.kinesis.region == "ap-southeast-1"

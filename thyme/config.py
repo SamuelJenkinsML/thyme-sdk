@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from thyme.connectors import IcebergSource, KafkaSource, PostgresSource, S3JsonSource
+    from thyme.connectors import IcebergSource, KafkaSource, KinesisSource, PostgresSource, S3JsonSource
 
 
 CREDENTIALS_DIR = Path.home() / ".thyme"
@@ -72,6 +72,14 @@ class KafkaConfig:
 
 
 @dataclass
+class KinesisConfig:
+    """Kinesis connection settings."""
+    stream_arn: str = ""
+    role_arn: str = ""
+    region: str = "us-east-1"
+
+
+@dataclass
 class Config:
     """Thyme infrastructure configuration.
 
@@ -87,6 +95,7 @@ class Config:
     s3: S3Config = field(default_factory=S3Config)
     iceberg: IcebergConfig = field(default_factory=IcebergConfig)
     kafka: KafkaConfig = field(default_factory=KafkaConfig)
+    kinesis: KinesisConfig = field(default_factory=KinesisConfig)
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "Config":
@@ -163,6 +172,14 @@ class Config:
             schema_registry_url=kfk.get("schema_registry_url", KafkaConfig.schema_registry_url),
         )
 
+        # Kinesis
+        kin = file_data.get("kinesis", {})
+        config.kinesis = KinesisConfig(
+            stream_arn=kin.get("stream_arn", KinesisConfig.stream_arn),
+            role_arn=kin.get("role_arn", KinesisConfig.role_arn),
+            region=kin.get("region", KinesisConfig.region),
+        )
+
         # Stored credentials (lowest priority for api_key/api_base)
         creds = load_credentials()
         if creds:
@@ -231,6 +248,15 @@ class Config:
             format=self.kafka.format,
             group_id=self.kafka.group_id,
             schema_registry_url=self.kafka.schema_registry_url,
+        )
+
+    def kinesis_source(self, stream_arn: str) -> "KinesisSource":
+        """Create a KinesisSource from this config's Kinesis settings."""
+        from thyme.connectors import KinesisSource
+        return KinesisSource(
+            stream_arn=stream_arn,
+            role_arn=self.kinesis.role_arn,
+            region=self.kinesis.region,
         )
 
 
@@ -323,6 +349,16 @@ def _apply_env_overrides(config: Config) -> None:
         val = os.environ.get(key)
         if val is not None:
             setattr(config.kafka, attr, fn(val))
+
+    kinesis = {
+        "THYME_KINESIS_STREAM_ARN": ("stream_arn", str),
+        "THYME_KINESIS_ROLE_ARN": ("role_arn", str),
+        "THYME_KINESIS_REGION": ("region", str),
+    }
+    for key, (attr, fn) in kinesis.items():
+        val = os.environ.get(key)
+        if val is not None:
+            setattr(config.kinesis, attr, fn(val))
 
 
 # ---------------------------------------------------------------------------

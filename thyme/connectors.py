@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Callable
 
 
@@ -133,6 +134,53 @@ class KafkaSource:
         }
 
 
+class KinesisSource:
+    """Configuration for an AWS Kinesis stream source."""
+
+    _VALID_INIT_POSITIONS = {"latest", "trim_horizon"}
+    _VALID_FORMATS = {"json"}
+
+    def __init__(
+        self,
+        stream_arn: str,
+        role_arn: str = "",
+        region: str = "us-east-1",
+        init_position: str = "latest",
+        format: str = "json",
+    ):
+        if init_position not in self._VALID_INIT_POSITIONS:
+            try:
+                datetime.fromisoformat(init_position)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid init_position '{init_position}'. "
+                    f"Must be one of {sorted(self._VALID_INIT_POSITIONS)} "
+                    f"or a valid ISO-8601 timestamp."
+                )
+        if format not in self._VALID_FORMATS:
+            raise ValueError(
+                f"Invalid format '{format}'. "
+                f"Must be one of {sorted(self._VALID_FORMATS)}."
+            )
+        self.stream_arn = stream_arn
+        self.role_arn = role_arn
+        self.region = region
+        self.init_position = init_position
+        self.format = format
+
+    def to_dict(self) -> dict:
+        return {
+            "connector_type": "kinesis",
+            "config": {
+                "stream_arn": self.stream_arn,
+                "role_arn": self.role_arn,
+                "region": self.region,
+                "init_position": self.init_position,
+                "format": self.format,
+            },
+        }
+
+
 _SOURCE_REGISTRY: dict[str, dict] = {}
 
 
@@ -168,6 +216,20 @@ def source(
         raise ValueError(
             f"Invalid cdc mode '{cdc}'. Must be one of {sorted(_VALID_CDC_MODES)}."
         )
+
+    _STREAMING_CONNECTORS = {"kafka", "kinesis"}
+    connector_type = connector.to_dict().get("connector_type", "")
+    if connector_type in _STREAMING_CONNECTORS:
+        if cursor:
+            raise ValueError(
+                f"Streaming source '{connector_type}' does not support 'cursor'. "
+                f"Remove the cursor parameter."
+            )
+        if every:
+            raise ValueError(
+                f"Streaming source '{connector_type}' does not support 'every'. "
+                f"Remove the every parameter."
+            )
 
     def wrapper(cls: type) -> type:
         source_meta = connector.to_dict()

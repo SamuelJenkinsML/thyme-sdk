@@ -3,6 +3,7 @@ import pytest
 from thyme.connectors import (
     IcebergSource,
     KafkaSource,
+    KinesisSource,
     PostgresSource,
     S3JsonSource,
     source,
@@ -379,10 +380,10 @@ def test_kafka_source_invalid_format_raises():
 
 
 def test_kafka_source_registers_with_source_decorator():
-    # Given: a KafkaSource attached to a dataset
+    # Given: a KafkaSource attached to a dataset (streaming: no cursor/every)
     kafka_src = KafkaSource(brokers="kafka:9092", topic="raw-events")
 
-    @source(kafka_src, cursor="ts", every="1m", cdc="append")
+    @source(kafka_src, cdc="append")
     class KafkaDataset:
         pass
 
@@ -392,4 +393,196 @@ def test_kafka_source_registers_with_source_decorator():
     # Then: correctly registered
     assert "KafkaDataset" in sources
     assert sources["KafkaDataset"]["connector_type"] == "kafka"
-    assert sources["KafkaDataset"]["cursor"] == "ts"
+    assert sources["KafkaDataset"]["cursor"] == ""
+
+
+# ---------------------------------------------------------------------------
+# KinesisSource tests
+# ---------------------------------------------------------------------------
+
+def test_kinesis_source_to_dict_connector_type():
+    # Given: a KinesisSource with required fields
+    src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123456789:stream/events")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: connector_type is "kinesis"
+    assert d["connector_type"] == "kinesis"
+
+
+def test_kinesis_source_to_dict_config_fields():
+    # Given: a KinesisSource with all fields
+    src = KinesisSource(
+        stream_arn="arn:aws:kinesis:us-east-1:123456789:stream/events",
+        role_arn="arn:aws:iam::123456789:role/kinesis-reader",
+        region="eu-west-1",
+        init_position="trim_horizon",
+        format="json",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: config contains all fields with correct values
+    cfg = d["config"]
+    assert cfg["stream_arn"] == "arn:aws:kinesis:us-east-1:123456789:stream/events"
+    assert cfg["role_arn"] == "arn:aws:iam::123456789:role/kinesis-reader"
+    assert cfg["region"] == "eu-west-1"
+    assert cfg["init_position"] == "trim_horizon"
+    assert cfg["format"] == "json"
+
+
+def test_kinesis_source_default_region_is_us_east_1():
+    # Given: a KinesisSource without explicit region
+    src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123:stream/s")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: region defaults to "us-east-1"
+    assert d["config"]["region"] == "us-east-1"
+
+
+def test_kinesis_source_default_init_position_is_latest():
+    # Given: a KinesisSource without explicit init_position
+    src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123:stream/s")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: init_position defaults to "latest"
+    assert d["config"]["init_position"] == "latest"
+
+
+def test_kinesis_source_default_format_is_json():
+    # Given: a KinesisSource without explicit format
+    src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123:stream/s")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: format defaults to "json"
+    assert d["config"]["format"] == "json"
+
+
+def test_kinesis_source_default_role_arn_is_empty():
+    # Given: a KinesisSource without explicit role_arn
+    src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123:stream/s")
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: role_arn defaults to ""
+    assert d["config"]["role_arn"] == ""
+
+
+def test_kinesis_source_init_position_trim_horizon():
+    # Given/When: a KinesisSource with trim_horizon
+    src = KinesisSource(
+        stream_arn="arn:aws:kinesis:us-east-1:123:stream/s",
+        init_position="trim_horizon",
+    )
+
+    # Then: no error, value stored
+    assert src.init_position == "trim_horizon"
+
+
+def test_kinesis_source_init_position_iso8601_timestamp():
+    # Given/When: a KinesisSource with an ISO-8601 timestamp
+    src = KinesisSource(
+        stream_arn="arn:aws:kinesis:us-east-1:123:stream/s",
+        init_position="2024-01-15T10:30:00",
+    )
+
+    # Then: no error, value stored
+    assert src.init_position == "2024-01-15T10:30:00"
+
+
+def test_kinesis_source_invalid_init_position_raises():
+    # Given/When: creating KinesisSource with invalid init_position
+    # Then: ValueError is raised
+    with pytest.raises(ValueError, match="init_position"):
+        KinesisSource(
+            stream_arn="arn:aws:kinesis:us-east-1:123:stream/s",
+            init_position="INVALID",
+        )
+
+
+def test_kinesis_source_invalid_format_raises():
+    # Given/When: creating KinesisSource with invalid format
+    # Then: ValueError is raised
+    with pytest.raises(ValueError, match="format"):
+        KinesisSource(
+            stream_arn="arn:aws:kinesis:us-east-1:123:stream/s",
+            format="avro",
+        )
+
+
+def test_kinesis_source_registers_with_source_decorator():
+    # Given: a KinesisSource attached to a dataset (streaming: no cursor/every)
+    kin_src = KinesisSource(
+        stream_arn="arn:aws:kinesis:us-east-1:123:stream/events",
+    )
+
+    @source(kin_src, disorder="5m", cdc="append")
+    class KinesisDataset:
+        pass
+
+    # When: reading registered sources
+    sources = get_registered_sources()
+
+    # Then: correctly registered
+    assert "KinesisDataset" in sources
+    assert sources["KinesisDataset"]["connector_type"] == "kinesis"
+    assert sources["KinesisDataset"]["cursor"] == ""
+    assert sources["KinesisDataset"]["every"] == ""
+    assert sources["KinesisDataset"]["disorder"] == "5m"
+
+
+# ---------------------------------------------------------------------------
+# Streaming source validation tests (cursor/every rejection)
+# ---------------------------------------------------------------------------
+
+def test_source_rejects_cursor_for_kafka():
+    # Given: a KafkaSource with cursor set
+    kafka_src = KafkaSource(brokers="kafka:9092", topic="events")
+
+    # When/Then: @source raises ValueError
+    with pytest.raises(ValueError, match="cursor"):
+        @source(kafka_src, cursor="ts")
+        class BadKafka:
+            pass
+
+
+def test_source_rejects_every_for_kafka():
+    # Given: a KafkaSource with every set
+    kafka_src = KafkaSource(brokers="kafka:9092", topic="events")
+
+    # When/Then: @source raises ValueError
+    with pytest.raises(ValueError, match="every"):
+        @source(kafka_src, every="5m")
+        class BadKafka:
+            pass
+
+
+def test_source_rejects_cursor_for_kinesis():
+    # Given: a KinesisSource with cursor set
+    kin_src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123:stream/s")
+
+    # When/Then: @source raises ValueError
+    with pytest.raises(ValueError, match="cursor"):
+        @source(kin_src, cursor="ts")
+        class BadKinesis:
+            pass
+
+
+def test_source_rejects_every_for_kinesis():
+    # Given: a KinesisSource with every set
+    kin_src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123:stream/s")
+
+    # When/Then: @source raises ValueError
+    with pytest.raises(ValueError, match="every"):
+        @source(kin_src, every="1m")
+        class BadKinesis:
+            pass

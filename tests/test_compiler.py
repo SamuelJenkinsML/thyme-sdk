@@ -202,6 +202,60 @@ def test_compile_source_kafka():
     assert proto.kafka.schema_registry_url == "http://registry:8081"
 
 
+def test_compile_source_kinesis():
+    # Given: a Kinesis source metadata dict
+    src_meta = {
+        "dataset": "ClickEvents",
+        "connector_type": "kinesis",
+        "config": {
+            "stream_arn": "arn:aws:kinesis:us-east-1:123456789:stream/clicks",
+            "role_arn": "arn:aws:iam::123456789:role/kinesis-reader",
+            "region": "us-east-1",
+            "init_position": "trim_horizon",
+            "format": "json",
+        },
+        "cursor": "",
+        "every": "",
+        "disorder": "5m",
+        "cdc": "append",
+    }
+
+    # When: compiling to proto
+    proto = compile_source(src_meta)
+
+    # Then: proto fields are populated correctly
+    assert proto.dataset == "ClickEvents"
+    assert proto.cursor == ""
+    assert proto.every == ""
+    assert proto.disorder == "5m"
+    assert proto.cdc == "append"
+    assert proto.kinesis.stream_arn == "arn:aws:kinesis:us-east-1:123456789:stream/clicks"
+    assert proto.kinesis.role_arn == "arn:aws:iam::123456789:role/kinesis-reader"
+    assert proto.kinesis.region == "us-east-1"
+    assert proto.kinesis.init_position == "trim_horizon"
+    assert proto.kinesis.format == "json"
+
+
+def test_compile_source_kinesis_defaults():
+    # Given: a minimal Kinesis source metadata dict
+    src_meta = {
+        "dataset": "Events",
+        "connector_type": "kinesis",
+        "config": {
+            "stream_arn": "arn:aws:kinesis:us-east-1:123:stream/s",
+        },
+    }
+
+    # When: compiling to proto
+    proto = compile_source(src_meta)
+
+    # Then: defaults are applied
+    assert proto.kinesis.region == "us-east-1"
+    assert proto.kinesis.init_position == "latest"
+    assert proto.kinesis.format == "json"
+    assert proto.kinesis.role_arn == ""
+
+
 def test_compile_dataset_with_expectations():
     ds_meta = {
         "name": "Review",
