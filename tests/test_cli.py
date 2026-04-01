@@ -471,3 +471,26 @@ def test_cli_commit_dry_run_still_outputs_json():
     assert result.exit_code == 0
     parsed = json.loads(result.stdout)
     assert "datasets" in parsed
+
+
+def test_commit_proto_failure_warns_and_falls_back_to_json():
+    """When protobuf compilation fails, CLI warns on stderr and falls back to JSON."""
+    clear_registry()
+
+    with patch("thyme.compiler.compile_commit_request", side_effect=RuntimeError("proto not available")), \
+         patch("httpx.post") as mock_post:
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            raise_for_status=MagicMock(return_value=None),
+        )
+        result = runner.invoke(app, ["commit", "-m", "tests.fixtures.sample_features"])
+
+    assert result.exit_code == 0, result.output
+    # Warning should appear on stderr
+    assert "protobuf compilation failed" in result.output
+    assert "falling back to JSON" in result.output
+    # Success message should indicate JSON format
+    assert "format=JSON" in result.output
+    # Should have posted with json=, not content=
+    call_kwargs = mock_post.call_args
+    assert "json" in call_kwargs.kwargs

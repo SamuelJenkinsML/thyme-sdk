@@ -67,6 +67,22 @@ def featureset(cls: type) -> type:
                 "id": default.id,
             })
 
+    # Validate feature IDs are positive and unique
+    seen_ids = {}
+    for f in features:
+        fid = f["id"]
+        if not isinstance(fid, int) or fid <= 0:
+            raise ValueError(
+                f"Feature '{f['name']}' in featureset '{cls.__name__}' has invalid id={fid}; "
+                f"feature IDs must be positive integers (> 0)"
+            )
+        if fid in seen_ids:
+            raise ValueError(
+                f"Duplicate feature id={fid} in featureset '{cls.__name__}': "
+                f"used by both '{seen_ids[fid]}' and '{f['name']}'"
+            )
+        seen_ids[fid] = f["name"]
+
     for attr_name in dir(cls):
         attr = getattr(cls, attr_name, None)
         if callable(attr) and hasattr(attr, "_is_extractor"):
@@ -87,6 +103,24 @@ def featureset(cls: type) -> type:
                 "version": version,
                 "source_code": textwrap.dedent(inspect.getsource(attr)),
             })
+
+    # Validate extractor input/output feature references
+    feature_names = {f["name"] for f in features}
+    for ext in extractors:
+        for inp in ext["inputs"]:
+            if inp not in feature_names:
+                raise ValueError(
+                    f"Extractor '{ext['name']}' in featureset '{cls.__name__}' references "
+                    f"input feature '{inp}' which is not declared in the featureset. "
+                    f"Declared features: {sorted(feature_names)}"
+                )
+        for out in ext["outputs"]:
+            if out not in feature_names:
+                raise ValueError(
+                    f"Extractor '{ext['name']}' in featureset '{cls.__name__}' references "
+                    f"output feature '{out}' which is not declared in the featureset. "
+                    f"Declared features: {sorted(feature_names)}"
+                )
 
     schema = {
         "name": cls.__name__,

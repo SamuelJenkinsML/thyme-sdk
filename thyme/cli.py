@@ -127,8 +127,8 @@ def commit(
                 sources=payload["sources"],
             )
             proto_bytes = proto_msg.SerializeToString()
-        except Exception:
-            pass
+        except Exception as e:
+            typer.echo(f"Warning: protobuf compilation failed ({e}); falling back to JSON", err=True)
 
         if proto_bytes is not None:
             response = httpx.post(
@@ -145,7 +145,8 @@ def commit(
         n_pl = len(payload["pipelines"])
         n_fs = len(payload["featuresets"])
         n_src = len(payload["sources"])
-        typer.echo(f"Committed {n_ds} dataset(s), {n_pl} pipeline(s), {n_fs} featureset(s), {n_src} source(s) to {url}")
+        fmt = "protobuf" if proto_bytes is not None else "JSON"
+        typer.echo(f"Committed {n_ds} dataset(s), {n_pl} pipeline(s), {n_fs} featureset(s), {n_src} source(s) to {url} [format={fmt}]")
     except HTTPStatusError as e:
         typer.echo(f"Error: {e.response.status_code} {e.response.text}", err=True)
         raise typer.Exit(1)
