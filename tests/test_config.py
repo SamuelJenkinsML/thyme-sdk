@@ -251,6 +251,34 @@ class TestConnectorFactories:
         assert d["config"]["role_arn"] == "arn:aws:iam::123:role/reader"
         assert d["config"]["region"] == "eu-west-1"
 
+    def test_snowflake_source(self):
+        config = Config()
+        config.snowflake.account = "xy12345.us-east-1"
+        config.snowflake.database = "analytics"
+        config.snowflake.warehouse = "compute_wh"
+        config.snowflake.user = "admin"
+        config.snowflake.password = "secret"
+        source = config.snowflake_source(table="orders")
+        d = source.to_dict()
+        assert d["connector_type"] == "snowflake"
+        assert d["config"]["account"] == "xy12345.us-east-1"
+        assert d["config"]["database"] == "analytics"
+        assert d["config"]["warehouse"] == "compute_wh"
+        assert d["config"]["table"] == "orders"
+        assert d["config"]["user"] == "admin"
+        assert d["config"]["password"] == "secret"
+
+    def test_bigquery_source(self):
+        config = Config()
+        config.bigquery.project_id = "my-project"
+        config.bigquery.dataset_id = "raw"
+        source = config.bigquery_source(table="events")
+        d = source.to_dict()
+        assert d["connector_type"] == "bigquery"
+        assert d["config"]["project_id"] == "my-project"
+        assert d["config"]["dataset_id"] == "raw"
+        assert d["config"]["table"] == "events"
+
 
 class TestKinesisConfigDefaults:
     """Given no overrides, KinesisConfig should have sensible defaults."""
@@ -279,3 +307,37 @@ class TestKinesisEnvOverrides:
         assert config.kinesis.stream_arn == "arn:aws:kinesis:us-east-1:123:stream/s"
         assert config.kinesis.role_arn == "arn:aws:iam::123:role/r"
         assert config.kinesis.region == "ap-southeast-1"
+
+
+class TestSnowflakeEnvOverrides:
+    """Given THYME_SNOWFLAKE_* env vars, they should override defaults."""
+
+    def test_snowflake_from_env(self, monkeypatch):
+        monkeypatch.setenv("THYME_SNOWFLAKE_ACCOUNT", "xy12345.us-east-1")
+        monkeypatch.setenv("THYME_SNOWFLAKE_DATABASE", "prod")
+        monkeypatch.setenv("THYME_SNOWFLAKE_WAREHOUSE", "compute_wh")
+        monkeypatch.setenv("THYME_SNOWFLAKE_USER", "admin")
+        monkeypatch.setenv("THYME_SNOWFLAKE_PASSWORD", "secret")
+        monkeypatch.setenv("THYME_SNOWFLAKE_SCHEMA", "RAW")
+        monkeypatch.setenv("THYME_SNOWFLAKE_ROLE", "loader")
+        config = Config.load()
+        assert config.snowflake.account == "xy12345.us-east-1"
+        assert config.snowflake.database == "prod"
+        assert config.snowflake.warehouse == "compute_wh"
+        assert config.snowflake.user == "admin"
+        assert config.snowflake.password == "secret"
+        assert config.snowflake.schema == "RAW"
+        assert config.snowflake.role == "loader"
+
+
+class TestBigQueryEnvOverrides:
+    """Given THYME_BIGQUERY_* env vars, they should override defaults."""
+
+    def test_bigquery_from_env(self, monkeypatch):
+        monkeypatch.setenv("THYME_BIGQUERY_PROJECT", "my-project")
+        monkeypatch.setenv("THYME_BIGQUERY_DATASET", "analytics")
+        monkeypatch.setenv("THYME_BIGQUERY_CREDENTIALS", "/path/to/creds.json")
+        config = Config.load()
+        assert config.bigquery.project_id == "my-project"
+        assert config.bigquery.dataset_id == "analytics"
+        assert config.bigquery.credentials_json == "/path/to/creds.json"

@@ -256,6 +256,77 @@ def test_compile_source_kinesis_defaults():
     assert proto.kinesis.role_arn == ""
 
 
+def test_compile_source_snowflake():
+    # Given: a Snowflake source metadata dict
+    src_meta = {
+        "dataset": "Orders",
+        "connector_type": "snowflake",
+        "config": {
+            "account": "xy12345.us-east-1",
+            "database": "analytics",
+            "schema": "RAW",
+            "warehouse": "etl_wh",
+            "role": "loader",
+            "table": "orders",
+            "user": "etl_user",
+            "password": "secret",
+        },
+        "cursor": "updated_at",
+        "every": "5m",
+        "disorder": "1h",
+        "cdc": "append",
+    }
+
+    # When: compiling to proto
+    proto = compile_source(src_meta)
+
+    # Then: proto fields are populated correctly
+    assert proto.dataset == "Orders"
+    assert proto.cursor == "updated_at"
+    assert proto.every == "5m"
+    assert proto.disorder == "1h"
+    assert proto.cdc == "append"
+    assert proto.snowflake.account == "xy12345.us-east-1"
+    assert proto.snowflake.database == "analytics"
+    assert proto.snowflake.schema == "RAW"
+    assert proto.snowflake.warehouse == "etl_wh"
+    assert proto.snowflake.role == "loader"
+    assert proto.snowflake.table == "orders"
+    assert proto.snowflake.user == "etl_user"
+    assert proto.snowflake.password == "secret"
+
+
+def test_compile_source_bigquery():
+    # Given: a BigQuery source metadata dict
+    src_meta = {
+        "dataset": "ClickEvents",
+        "connector_type": "bigquery",
+        "config": {
+            "project_id": "my-project",
+            "dataset_id": "raw",
+            "table": "clicks",
+            "credentials_json": '{"type": "service_account"}',
+        },
+        "cursor": "event_time",
+        "every": "10m",
+        "disorder": "",
+        "cdc": "append",
+    }
+
+    # When: compiling to proto
+    proto = compile_source(src_meta)
+
+    # Then: proto fields are populated correctly
+    assert proto.dataset == "ClickEvents"
+    assert proto.cursor == "event_time"
+    assert proto.every == "10m"
+    assert proto.cdc == "append"
+    assert proto.bigquery.project_id == "my-project"
+    assert proto.bigquery.dataset_id == "raw"
+    assert proto.bigquery.table == "clicks"
+    assert proto.bigquery.credentials_json == '{"type": "service_account"}'
+
+
 def test_compile_dataset_with_expectations():
     ds_meta = {
         "name": "Review",

@@ -25,3 +25,6 @@ Thumbs.db
 htmlcov/
 .coverage
 test-results.xml
+
+# Duplicate protoc output
+thyme/gen/thyme/

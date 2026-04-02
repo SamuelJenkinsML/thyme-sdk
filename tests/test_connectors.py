@@ -1,11 +1,13 @@
 import pytest
 
 from thyme.connectors import (
+    BigQuerySource,
     IcebergSource,
     KafkaSource,
     KinesisSource,
     PostgresSource,
     S3JsonSource,
+    SnowflakeSource,
     source,
     clear_source_registry,
     get_registered_sources,
@@ -586,3 +588,156 @@ def test_source_rejects_every_for_kinesis():
         @source(kin_src, every="1m")
         class BadKinesis:
             pass
+
+
+# ---------------------------------------------------------------------------
+# SnowflakeSource tests
+# ---------------------------------------------------------------------------
+
+def test_snowflake_source_to_dict_connector_type():
+    # Given: a SnowflakeSource configuration
+    src = SnowflakeSource(
+        account="xy12345.us-east-1", database="prod", warehouse="compute_wh",
+        table="orders", user="admin", password="secret",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: connector_type is "snowflake"
+    assert d["connector_type"] == "snowflake"
+
+
+def test_snowflake_source_to_dict_config_fields():
+    # Given: a SnowflakeSource with all fields
+    src = SnowflakeSource(
+        account="xy12345.us-east-1", database="analytics", schema="RAW",
+        warehouse="etl_wh", role="loader", table="events",
+        user="etl_user", password="pw",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: config contains all connection fields
+    cfg = d["config"]
+    assert cfg["account"] == "xy12345.us-east-1"
+    assert cfg["database"] == "analytics"
+    assert cfg["schema"] == "RAW"
+    assert cfg["warehouse"] == "etl_wh"
+    assert cfg["role"] == "loader"
+    assert cfg["table"] == "events"
+    assert cfg["user"] == "etl_user"
+    assert cfg["password"] == "pw"
+
+
+def test_snowflake_source_default_schema_is_public():
+    # Given: a SnowflakeSource without explicit schema
+    src = SnowflakeSource(
+        account="a", database="d", warehouse="w", table="t", user="u", password="p",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: schema defaults to "PUBLIC"
+    assert d["config"]["schema"] == "PUBLIC"
+
+
+def test_snowflake_source_default_role_is_empty():
+    # Given: a SnowflakeSource without explicit role
+    src = SnowflakeSource(
+        account="a", database="d", warehouse="w", table="t", user="u", password="p",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: role defaults to ""
+    assert d["config"]["role"] == ""
+
+
+def test_snowflake_source_registers_with_source_decorator():
+    # Given: a SnowflakeSource attached to a dataset
+    sf_src = SnowflakeSource(
+        account="a", database="d", warehouse="w", table="t", user="u", password="p",
+    )
+
+    @source(sf_src, cursor="updated_at", every="5m")
+    class SnowflakeDataset:
+        pass
+
+    # When: reading registered sources
+    sources = get_registered_sources()
+
+    # Then: the source is registered with the correct connector type
+    assert "SnowflakeDataset" in sources
+    assert sources["SnowflakeDataset"]["connector_type"] == "snowflake"
+    assert sources["SnowflakeDataset"]["cursor"] == "updated_at"
+
+
+# ---------------------------------------------------------------------------
+# BigQuerySource tests
+# ---------------------------------------------------------------------------
+
+def test_bigquery_source_to_dict_connector_type():
+    # Given: a BigQuerySource configuration
+    src = BigQuerySource(
+        project_id="my-project", dataset_id="analytics", table="events",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: connector_type is "bigquery"
+    assert d["connector_type"] == "bigquery"
+
+
+def test_bigquery_source_to_dict_config_fields():
+    # Given: a BigQuerySource with all fields
+    src = BigQuerySource(
+        project_id="my-project", dataset_id="raw", table="clicks",
+        credentials_json='{"type": "service_account"}',
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: config contains all fields
+    cfg = d["config"]
+    assert cfg["project_id"] == "my-project"
+    assert cfg["dataset_id"] == "raw"
+    assert cfg["table"] == "clicks"
+    assert cfg["credentials_json"] == '{"type": "service_account"}'
+
+
+def test_bigquery_source_default_credentials_json_is_empty():
+    # Given: a BigQuerySource without explicit credentials_json
+    src = BigQuerySource(
+        project_id="p", dataset_id="d", table="t",
+    )
+
+    # When: calling to_dict
+    d = src.to_dict()
+
+    # Then: credentials_json defaults to ""
+    assert d["config"]["credentials_json"] == ""
+
+
+def test_bigquery_source_registers_with_source_decorator():
+    # Given: a BigQuerySource attached to a dataset
+    bq_src = BigQuerySource(
+        project_id="my-project", dataset_id="analytics", table="events",
+    )
+
+    @source(bq_src, cursor="event_time", every="10m")
+    class BigQueryDataset:
+        pass
+
+    # When: reading registered sources
+    sources = get_registered_sources()
+
+    # Then: the source is registered with the correct connector type
+    assert "BigQueryDataset" in sources
+    assert sources["BigQueryDataset"]["connector_type"] == "bigquery"
+    assert sources["BigQueryDataset"]["cursor"] == "event_time"

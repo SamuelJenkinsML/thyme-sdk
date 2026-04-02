@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from thyme.connectors import IcebergSource, KafkaSource, KinesisSource, PostgresSource, S3JsonSource
+    from thyme.connectors import BigQuerySource, IcebergSource, KafkaSource, KinesisSource, PostgresSource, S3JsonSource, SnowflakeSource
 
 
 CREDENTIALS_DIR = Path.home() / ".thyme"
@@ -80,6 +80,26 @@ class KinesisConfig:
 
 
 @dataclass
+class SnowflakeConfig:
+    """Snowflake connection settings."""
+    account: str = ""
+    database: str = ""
+    schema: str = "PUBLIC"
+    warehouse: str = ""
+    role: str = ""
+    user: str = ""
+    password: str = ""
+
+
+@dataclass
+class BigQueryConfig:
+    """BigQuery connection settings."""
+    project_id: str = ""
+    dataset_id: str = ""
+    credentials_json: str = ""
+
+
+@dataclass
 class Config:
     """Thyme infrastructure configuration.
 
@@ -96,6 +116,8 @@ class Config:
     iceberg: IcebergConfig = field(default_factory=IcebergConfig)
     kafka: KafkaConfig = field(default_factory=KafkaConfig)
     kinesis: KinesisConfig = field(default_factory=KinesisConfig)
+    snowflake: SnowflakeConfig = field(default_factory=SnowflakeConfig)
+    bigquery: BigQueryConfig = field(default_factory=BigQueryConfig)
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "Config":
@@ -180,6 +202,26 @@ class Config:
             region=kin.get("region", KinesisConfig.region),
         )
 
+        # Snowflake
+        sf = file_data.get("snowflake", {})
+        config.snowflake = SnowflakeConfig(
+            account=sf.get("account", SnowflakeConfig.account),
+            database=sf.get("database", SnowflakeConfig.database),
+            schema=sf.get("schema", SnowflakeConfig.schema),
+            warehouse=sf.get("warehouse", SnowflakeConfig.warehouse),
+            role=sf.get("role", SnowflakeConfig.role),
+            user=sf.get("user", SnowflakeConfig.user),
+            password=sf.get("password", SnowflakeConfig.password),
+        )
+
+        # BigQuery
+        bq = file_data.get("bigquery", {})
+        config.bigquery = BigQueryConfig(
+            project_id=bq.get("project_id", BigQueryConfig.project_id),
+            dataset_id=bq.get("dataset_id", BigQueryConfig.dataset_id),
+            credentials_json=bq.get("credentials_json", BigQueryConfig.credentials_json),
+        )
+
         # Stored credentials (lowest priority for api_key/api_base)
         creds = load_credentials()
         if creds:
@@ -257,6 +299,30 @@ class Config:
             stream_arn=stream_arn,
             role_arn=self.kinesis.role_arn,
             region=self.kinesis.region,
+        )
+
+    def snowflake_source(self, table: str) -> "SnowflakeSource":
+        """Create a SnowflakeSource from this config's Snowflake settings."""
+        from thyme.connectors import SnowflakeSource
+        return SnowflakeSource(
+            account=self.snowflake.account,
+            database=self.snowflake.database,
+            schema=self.snowflake.schema,
+            warehouse=self.snowflake.warehouse,
+            role=self.snowflake.role,
+            table=table,
+            user=self.snowflake.user,
+            password=self.snowflake.password,
+        )
+
+    def bigquery_source(self, table: str) -> "BigQuerySource":
+        """Create a BigQuerySource from this config's BigQuery settings."""
+        from thyme.connectors import BigQuerySource
+        return BigQuerySource(
+            project_id=self.bigquery.project_id,
+            dataset_id=self.bigquery.dataset_id,
+            table=table,
+            credentials_json=self.bigquery.credentials_json,
         )
 
 
@@ -359,6 +425,30 @@ def _apply_env_overrides(config: Config) -> None:
         val = os.environ.get(key)
         if val is not None:
             setattr(config.kinesis, attr, fn(val))
+
+    snowflake = {
+        "THYME_SNOWFLAKE_ACCOUNT": ("account", str),
+        "THYME_SNOWFLAKE_DATABASE": ("database", str),
+        "THYME_SNOWFLAKE_SCHEMA": ("schema", str),
+        "THYME_SNOWFLAKE_WAREHOUSE": ("warehouse", str),
+        "THYME_SNOWFLAKE_ROLE": ("role", str),
+        "THYME_SNOWFLAKE_USER": ("user", str),
+        "THYME_SNOWFLAKE_PASSWORD": ("password", str),
+    }
+    for key, (attr, fn) in snowflake.items():
+        val = os.environ.get(key)
+        if val is not None:
+            setattr(config.snowflake, attr, fn(val))
+
+    bigquery = {
+        "THYME_BIGQUERY_PROJECT": ("project_id", str),
+        "THYME_BIGQUERY_DATASET": ("dataset_id", str),
+        "THYME_BIGQUERY_CREDENTIALS": ("credentials_json", str),
+    }
+    for key, (attr, fn) in bigquery.items():
+        val = os.environ.get(key)
+        if val is not None:
+            setattr(config.bigquery, attr, fn(val))
 
 
 # ---------------------------------------------------------------------------

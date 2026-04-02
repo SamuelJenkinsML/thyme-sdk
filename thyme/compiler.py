@@ -207,6 +207,24 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             init_position=config.get("init_position", "latest"),
             format=config.get("format", "json"),
         ))
+    elif connector_type == "snowflake":
+        source.snowflake.CopyFrom(connector_pb2.SnowflakeSource(
+            account=config.get("account", ""),
+            database=config.get("database", ""),
+            schema=config.get("schema", "PUBLIC"),
+            warehouse=config.get("warehouse", ""),
+            role=config.get("role", ""),
+            table=config.get("table", ""),
+            user=config.get("user", ""),
+            password=config.get("password", ""),
+        ))
+    elif connector_type == "bigquery":
+        source.bigquery.CopyFrom(connector_pb2.BigQuerySource(
+            project_id=config.get("project_id", ""),
+            dataset_id=config.get("dataset_id", ""),
+            table=config.get("table", ""),
+            credentials_json=config.get("credentials_json", ""),
+        ))
     return source
 
 

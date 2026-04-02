@@ -181,6 +181,72 @@ class KinesisSource:
         }
 
 
+class SnowflakeSource:
+    """Configuration for a Snowflake table source."""
+
+    def __init__(
+        self,
+        account: str,
+        database: str,
+        warehouse: str,
+        table: str,
+        user: str,
+        password: str,
+        schema: str = "PUBLIC",
+        role: str = "",
+    ):
+        self.account = account
+        self.database = database
+        self.schema = schema
+        self.warehouse = warehouse
+        self.role = role
+        self.table = table
+        self.user = user
+        self.password = password
+
+    def to_dict(self) -> dict:
+        return {
+            "connector_type": "snowflake",
+            "config": {
+                "account": self.account,
+                "database": self.database,
+                "schema": self.schema,
+                "warehouse": self.warehouse,
+                "role": self.role,
+                "table": self.table,
+                "user": self.user,
+                "password": self.password,
+            },
+        }
+
+
+class BigQuerySource:
+    """Configuration for a BigQuery table source."""
+
+    def __init__(
+        self,
+        project_id: str,
+        dataset_id: str,
+        table: str,
+        credentials_json: str = "",
+    ):
+        self.project_id = project_id
+        self.dataset_id = dataset_id
+        self.table = table
+        self.credentials_json = credentials_json
+
+    def to_dict(self) -> dict:
+        return {
+            "connector_type": "bigquery",
+            "config": {
+                "project_id": self.project_id,
+                "dataset_id": self.dataset_id,
+                "table": self.table,
+                "credentials_json": self.credentials_json,
+            },
+        }
+
+
 _SOURCE_REGISTRY: dict[str, dict] = {}
 
 
