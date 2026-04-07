@@ -59,18 +59,20 @@ class Pipeline(_message.Message):
     def __init__(self, name: _Optional[str] = ..., version: _Optional[int] = ..., input_datasets: _Optional[_Iterable[str]] = ..., output_dataset: _Optional[str] = ..., operators: _Optional[_Iterable[_Union[Operator, _Mapping]]] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ...) -> None: ...
 
 class Operator(_message.Message):
-    __slots__ = ("id", "aggregate", "filter", "transform", "group_by")
+    __slots__ = ("id", "aggregate", "filter", "transform", "group_by", "temporal_join")
     ID_FIELD_NUMBER: _ClassVar[int]
     AGGREGATE_FIELD_NUMBER: _ClassVar[int]
     FILTER_FIELD_NUMBER: _ClassVar[int]
     TRANSFORM_FIELD_NUMBER: _ClassVar[int]
     GROUP_BY_FIELD_NUMBER: _ClassVar[int]
+    TEMPORAL_JOIN_FIELD_NUMBER: _ClassVar[int]
     id: str
     aggregate: Aggregate
     filter: Filter
     transform: Transform
     group_by: GroupBy
-    def __init__(self, id: _Optional[str] = ..., aggregate: _Optional[_Union[Aggregate, _Mapping]] = ..., filter: _Optional[_Union[Filter, _Mapping]] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ..., group_by: _Optional[_Union[GroupBy, _Mapping]] = ...) -> None: ...
+    temporal_join: TemporalJoin
+    def __init__(self, id: _Optional[str] = ..., aggregate: _Optional[_Union[Aggregate, _Mapping]] = ..., filter: _Optional[_Union[Filter, _Mapping]] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ..., group_by: _Optional[_Union[GroupBy, _Mapping]] = ..., temporal_join: _Optional[_Union[TemporalJoin, _Mapping]] = ...) -> None: ...
 
 class Aggregate(_message.Message):
     __slots__ = ("operand_id", "keys", "specs")
@@ -117,3 +119,15 @@ class GroupBy(_message.Message):
     operand_id: str
     keys: _containers.RepeatedScalarFieldContainer[str]
     def __init__(self, operand_id: _Optional[str] = ..., keys: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class TemporalJoin(_message.Message):
+    __slots__ = ("right_dataset", "left_key_field", "right_key_field", "select_fields")
+    RIGHT_DATASET_FIELD_NUMBER: _ClassVar[int]
+    LEFT_KEY_FIELD_FIELD_NUMBER: _ClassVar[int]
+    RIGHT_KEY_FIELD_FIELD_NUMBER: _ClassVar[int]
+    SELECT_FIELDS_FIELD_NUMBER: _ClassVar[int]
+    right_dataset: str
+    left_key_field: str
+    right_key_field: str
+    select_fields: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, right_dataset: _Optional[str] = ..., left_key_field: _Optional[str] = ..., right_key_field: _Optional[str] = ..., select_fields: _Optional[_Iterable[str]] = ...) -> None: ...

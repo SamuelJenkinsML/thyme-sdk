@@ -150,6 +150,13 @@ def _discover_pipelines(cls: type) -> None:
             operators = pl.get_operators()
         except Exception:
             operators = []
+        # Add right-side datasets from temporal joins to input_datasets.
+        all_input_datasets = list(input_datasets)
+        for op in operators:
+            if "temporal_join" in op:
+                right_ds = op["temporal_join"].get("right_dataset", "")
+                if right_ds and right_ds not in all_input_datasets:
+                    all_input_datasets.append(right_ds)
         try:
             source_code = inspect.getsource(method)
         except OSError:
@@ -157,7 +164,7 @@ def _discover_pipelines(cls: type) -> None:
         pipeline_meta = {
             "name": method.__name__,
             "version": version,
-            "input_datasets": input_datasets,
+            "input_datasets": all_input_datasets,
             "output_dataset": cls.__name__,
             "operators": operators,
             "source_code": source_code,

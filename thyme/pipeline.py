@@ -57,15 +57,32 @@ class PipelineNode:
         self.dataset_name = dataset_name
         self._group_keys: List[str] = []
         self._agg_specs: List[dict] = []
+        self._join_specs: List[dict] = []
+
+    def join(self, right_dataset: Any, *, on: str, fields: List[str] | None = None) -> "PipelineNode":
+        """Temporal join: enrich each left record with the most recent right-side state."""
+        node = PipelineNode(self.dataset_name)
+        node._group_keys = list(self._group_keys)
+        node._agg_specs = list(self._agg_specs)
+        node._join_specs = list(self._join_specs)
+        right_name = right_dataset.__name__ if hasattr(right_dataset, "__name__") else str(right_dataset)
+        node._join_specs.append({
+            "right_dataset": right_name,
+            "left_key_field": on,
+            "select_fields": fields or [],
+        })
+        return node
 
     def groupby(self, *keys: str) -> "PipelineNode":
         node = PipelineNode(self.dataset_name)
         node._group_keys = list(keys)
+        node._join_specs = list(self._join_specs)
         return node
 
     def aggregate(self, **kwargs: AggOp) -> "PipelineNode":
         node = PipelineNode(self.dataset_name)
         node._group_keys = list(self._group_keys)
+        node._join_specs = list(self._join_specs)
         for output_field, op in kwargs.items():
             if not isinstance(op, AggOp):
                 raise TypeError(f"Expected AggOp, got {type(op).__name__}")
@@ -96,14 +113,18 @@ class Pipeline:
             # Support both plain functions and bound/unbound methods.
             raw = getattr(self.func, "__func__", self.func)
             self._node = raw(None, input_node)
-        if self._node and self._node._agg_specs:
-            return [{
-                "aggregate": {
-                    "keys": self._node._group_keys,
-                    "specs": self._node._agg_specs,
-                }
-            }]
-        return []
+        operators: List[dict] = []
+        if self._node:
+            for join_spec in self._node._join_specs:
+                operators.append({"temporal_join": join_spec})
+            if self._node._agg_specs:
+                operators.append({
+                    "aggregate": {
+                        "keys": self._node._group_keys,
+                        "specs": self._node._agg_specs,
+                    }
+                })
+        return operators
 
 
 def pipeline(version: int = 1):
