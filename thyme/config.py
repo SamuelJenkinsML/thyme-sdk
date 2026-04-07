@@ -141,16 +141,28 @@ class Config:
                     file_data = _load_yaml(candidate)
                     break
 
-        # Start from file values (or defaults)
-        api_base = file_data.get("api_base", cls.api_base)
+        # Start from file values (or defaults).
+        # Support both flat keys (api_base) and nested keys (definition_service.url).
+        ds = file_data.get("definition_service", {})
+        qs = file_data.get("query_server", {})
+        api_base = file_data.get("api_base") or ds.get("url") or cls.api_base
+        query_url = file_data.get("query_url") or qs.get("url") or cls.query_url
         api_url = file_data.get("api_url", None)
         if api_url is None:
             # Derive api_url from api_base when not explicitly set
             api_url = api_base + "/api/v1/commit" if api_base != cls.api_base else cls.api_url
+
+        # Track which fields were explicitly set by config file (not just defaults).
+        # Stored credentials should only fill gaps, not overwrite explicit config.
+        _file_set_api_base = "api_base" in file_data or "url" in ds
+        _file_set_query_url = "query_url" in file_data or "url" in qs
+        _file_set_api_url = "api_url" in file_data
+        _file_set_api_key = "api_key" in file_data
+
         config = cls(
             api_url=api_url,
             api_base=api_base,
-            query_url=file_data.get("query_url", cls.query_url),
+            query_url=query_url,
             api_key=file_data.get("api_key", cls.api_key),
         )
 
@@ -222,16 +234,16 @@ class Config:
             credentials_json=bq.get("credentials_json", BigQueryConfig.credentials_json),
         )
 
-        # Stored credentials (lowest priority for api_key/api_base)
+        # Stored credentials (lowest priority — only fill gaps not set by config file)
         creds = load_credentials()
         if creds:
-            if not config.api_key:
+            if not config.api_key and not _file_set_api_key:
                 config.api_key = creds.get("api_key", "")
-            if config.api_base == cls.api_base and creds.get("api_base"):
+            if not _file_set_api_base and creds.get("api_base"):
                 config.api_base = creds["api_base"]
-            if config.api_url == cls.api_url and creds.get("api_base"):
+            if not _file_set_api_url and not _file_set_api_base and creds.get("api_base"):
                 config.api_url = creds["api_base"] + "/api/v1/commit"
-            if config.query_url == cls.query_url and creds.get("query_url"):
+            if not _file_set_query_url and creds.get("query_url"):
                 config.query_url = creds["query_url"]
 
         # Env var overrides (highest priority)

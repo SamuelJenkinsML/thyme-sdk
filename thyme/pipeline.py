@@ -50,6 +50,23 @@ class Max(AggOp):
         return "max"
 
 
+class ApproxPercentile(AggOp):
+    """Approximate percentile distribution over a time window using t-Digest.
+
+    Stores a sketch of the value distribution, enabling percentile rank
+    queries at read time. The materialized feature value is the percentile
+    rank (0.0 to 1.0) of the latest event value within the distribution.
+    """
+
+    def __init__(self, of: str = "", window: str = "", precision: int = 100):
+        super().__init__(of=of, window=window)
+        self.precision = precision
+
+    @property
+    def agg_type(self) -> str:
+        return "approx_percentile"
+
+
 class PipelineNode:
     """Represents a step in a pipeline DAG."""
 
@@ -86,12 +103,15 @@ class PipelineNode:
         for output_field, op in kwargs.items():
             if not isinstance(op, AggOp):
                 raise TypeError(f"Expected AggOp, got {type(op).__name__}")
-            node._agg_specs.append({
+            spec = {
                 "type": op.agg_type,
                 "field": op.of,
                 "window": op.window,
                 "output_field": output_field,
-            })
+            }
+            if hasattr(op, "precision"):
+                spec["precision"] = op.precision
+            node._agg_specs.append(spec)
         return node
 
 

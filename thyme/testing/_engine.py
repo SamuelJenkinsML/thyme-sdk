@@ -63,6 +63,15 @@ class _GroupState:
             return min(values)
         elif agg_type == "max":
             return max(values)
+        elif agg_type == "approx_percentile":
+            # For testing: compute exact percentile rank of the latest value
+            # in the distribution of all values in the window.
+            if len(values) <= 1:
+                return 0.5
+            latest_value = values[-1]
+            sorted_vals = sorted(values)
+            rank = sum(1 for v in sorted_vals if v < latest_value)
+            return rank / len(sorted_vals)
         else:
             raise ValueError(f"Unknown aggregation type: {agg_type}")
 
