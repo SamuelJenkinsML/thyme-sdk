@@ -137,6 +137,10 @@ def commit(
                 headers={**headers, "Content-Type": "application/protobuf"},
                 timeout=30.0,
             )
+            if response.status_code == 400 and "Unsupported operator" in response.text:
+                typer.echo("Warning: server does not support all proto operator types; retrying with JSON", err=True)
+                proto_bytes = None
+                response = httpx.post(url, json=payload, headers=headers, timeout=30.0)
         else:
             response = httpx.post(url, json=payload, headers=headers, timeout=30.0)
 

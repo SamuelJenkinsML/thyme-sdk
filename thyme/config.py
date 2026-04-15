@@ -518,6 +518,12 @@ def _parse_simple_yaml(path: Path) -> dict[str, Any]:
 
 def _coerce(value: str) -> str | int | float | bool:
     """Coerce a YAML string value to its likely Python type."""
+    # Strip surrounding quotes (single or double) — the simple parser
+    # doesn't handle YAML quoting natively, so values like
+    #   password: "foo&bar"
+    # arrive with literal quote characters that must be removed.
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        return value[1:-1]
     if value.lower() in ("true", "yes"):
         return True
     if value.lower() in ("false", "no"):

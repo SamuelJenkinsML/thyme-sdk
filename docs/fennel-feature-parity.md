@@ -2,6 +2,8 @@
 
 This document defines the features and connectors to port from the Fennel feature platform into Thyme. Each task is self-contained with enough context for an implementing agent to pick up independently. All work follows TDD: write failing tests first, then implement.
 
+We can also use the Fennel client in ~/Projects/client for inspiration.
+
 **Testing strategy**: Each task requires two test tiers:
 - **Local tests** (`tests/`): Use `MockContext` and unit tests. Run via `make test` (`uv run pytest -v`). No infrastructure needed.
 - **E2E tests** (`~/Projects/thyme/sdk/tests/test_e2e.py`): Run against live local infrastructure (Docker Compose: Postgres 5433, Redpanda/Kafka 19092, MinIO 9000) or AWS. These validate the full path: SDK commit -> definition-service -> engine -> query-server.

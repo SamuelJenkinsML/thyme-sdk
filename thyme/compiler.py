@@ -137,6 +137,9 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
         pycode = None
         if "source_code" in ext:
             pycode = _make_pycode(ext["source_code"], ext["name"])
+        elif ext.get("pycode") and "source_code" in ext["pycode"]:
+            pc = ext["pycode"]
+            pycode = _make_pycode(pc["source_code"], pc.get("entry_point", ext["name"]))
 
         extractors.append(featureset_pb2.Extractor(
             name=ext["name"],

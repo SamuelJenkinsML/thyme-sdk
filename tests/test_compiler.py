@@ -403,3 +403,31 @@ def test_compile_roundtrip_serialization():
     deserialized.ParseFromString(serialized)
     assert deserialized.message == "test"
     assert deserialized.datasets[0].name == "Test"
+
+
+def test_compile_extractor_preserves_nested_pycode():
+    """Given an extractor with pycode nested under ext["pycode"]["source_code"]
+    (the actual SDK format), compile_commit_request should preserve it."""
+    featuresets = [{
+        "name": "TestFS",
+        "features": [{"name": "x", "dtype": "float", "id": 1}],
+        "extractors": [{
+            "name": "compute_x",
+            "inputs": ["raw_x"],
+            "outputs": ["x"],
+            "deps": [],
+            "version": 1,
+            "pycode": {
+                "entry_point": "compute_x",
+                "source_code": "def compute_x(cls, ts, raw_x): return raw_x * 2",
+                "generated_code": "",
+                "imports": "",
+            },
+        }],
+    }]
+    msg = compile_commit_request(
+        "", datasets=[], pipelines=[], featuresets=featuresets, sources=[],
+    )
+    ext = msg.featuresets[0].extractors[0]
+    assert ext.pycode is not None
+    assert "compute_x" in ext.pycode.source_code

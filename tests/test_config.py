@@ -341,3 +341,40 @@ class TestBigQueryEnvOverrides:
         assert config.bigquery.project_id == "my-project"
         assert config.bigquery.dataset_id == "analytics"
         assert config.bigquery.credentials_json == "/path/to/creds.json"
+
+
+class TestCoerceQuoteStripping:
+    """Given quoted strings, _coerce should strip surrounding quotes."""
+
+    def test_coerce_strips_double_quotes(self):
+        from thyme.config import _coerce
+        assert _coerce('"https://api.example.com"') == "https://api.example.com"
+
+    def test_coerce_strips_single_quotes(self):
+        from thyme.config import _coerce
+        assert _coerce("'password&with{specials'") == "password&with{specials"
+
+    def test_coerce_preserves_unquoted_url(self):
+        from thyme.config import _coerce
+        assert _coerce("http://localhost:8080") == "http://localhost:8080"
+
+    def test_coerce_preserves_inner_quotes(self):
+        from thyme.config import _coerce
+        assert _coerce('say "hello"') == 'say "hello"'
+
+
+class TestSimpleYamlQuotedValues:
+    """Given a .thyme.yaml with quoted values, _parse_simple_yaml should strip quotes."""
+
+    def test_simple_yaml_quoted_password_with_special_chars(self, tmp_path):
+        from thyme.config import _parse_simple_yaml
+        f = tmp_path / ".thyme.yaml"
+        f.write_text(
+            'api_base: "https://api.example.com"\n'
+            "\n"
+            "postgres:\n"
+            '  password: "foo&bar{baz"'
+        )
+        data = _parse_simple_yaml(f)
+        assert data["api_base"] == "https://api.example.com"
+        assert data["postgres"]["password"] == "foo&bar{baz"
