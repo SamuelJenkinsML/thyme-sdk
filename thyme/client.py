@@ -95,14 +95,14 @@ class ThymeClient:
         _transport: httpx.BaseTransport | None = None,
     ):
         self._config = config or Config.load()
-        client_kwargs: dict[str, Any] = {
-            "base_url": self._config.query_url,
+        shared: dict[str, Any] = {
             "headers": self._config.auth_headers(),
             "timeout": 30.0,
         }
         if _transport is not None:
-            client_kwargs["transport"] = _transport
-        self._http = httpx.Client(**client_kwargs)
+            shared["transport"] = _transport
+        self._http = httpx.Client(base_url=self._config.query_url, **shared)
+        self._def_http = httpx.Client(base_url=self._config.api_base, **shared)
 
     def query(
         self,
@@ -269,3 +269,154 @@ class ThymeClient:
             "entity_type": fs_name,
             "mode": "offline",
         })
+
+    def lookup(
+        self,
+        dataset: type,
+        entity_id: str,
+        *,
+        timestamp: str | None = None,
+    ) -> ThymeResult:
+        """Direct dataset point lookup (no extractors).
+
+        Uses the query-server's raw path to read directly from RocksDB.
+
+        Args:
+            dataset: A @dataset-decorated class.
+            entity_id: The entity to look up.
+            timestamp: Optional timestamp for point-in-time lookup.
+
+        Returns:
+            ThymeResult with a single row, or empty if entity not found.
+        """
+        ds_meta = getattr(dataset, "_dataset_meta", None)
+        if ds_meta is None:
+            raise ValueError(
+                f"'{dataset.__name__}' is not a registered dataset. "
+                f"Did you decorate it with @dataset?"
+            )
+        ds_name = ds_meta["name"]
+
+        params: dict[str, str] = {
+            "entity_type": ds_name,
+            "entity_id": entity_id,
+        }
+        if timestamp is not None:
+            params["timestamp"] = timestamp
+
+        response = self._http.get("/features", params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        features = data.get("features")
+        mode = data.get("mode", "online")
+
+        if features is None:
+            df = pl.DataFrame()
+        else:
+            df = pl.DataFrame([features])
+
+        return ThymeResult(df, metadata={
+            "entity_id": entity_id,
+            "entity_type": ds_name,
+            "mode": mode,
+        })
+
+    def inspect(
+        self,
+        featureset: type | None = None,
+    ) -> dict:
+        """Inspect system metadata from the definition service.
+
+        Args:
+            featureset: If provided, return metadata for this specific featureset.
+                        If None, return the full system status.
+
+        Returns:
+            Dict with system metadata (datasets, pipelines, featuresets, sources, jobs)
+            or a single featureset's metadata if featureset is specified.
+
+        Raises:
+            ValueError: If the specified featureset is not found.
+        """
+        # inspect() calls the definition-service, not the query-server
+        response = self._def_http.get("/api/v1/status")
+        response.raise_for_status()
+        data = response.json()
+
+        if featureset is None:
+            return data
+
+        meta = _get_featureset_meta(featureset)
+        fs_name = meta["name"]
+
+        for fs in data.get("featuresets", []):
+            if fs.get("name") == fs_name:
+                return fs
+
+        raise ValueError(
+            f"Featureset '{fs_name}' not found in system status. "
+            f"Has it been committed?"
+        )
+
+    def log(
+        self,
+        dataset: type,
+        data: pl.DataFrame | list[dict] | Any,
+    ) -> None:
+        """Push data into a dataset via the definition-service.
+
+        Args:
+            dataset: A @dataset-decorated class.
+            data: Events to log. Accepts pl.DataFrame, pd.DataFrame, or list[dict].
+
+        Raises:
+            httpx.HTTPStatusError: On non-2xx response.
+        """
+        ds_meta = getattr(dataset, "_dataset_meta", None)
+        if ds_meta is None:
+            raise ValueError(
+                f"'{dataset.__name__}' is not a registered dataset. "
+                f"Did you decorate it with @dataset?"
+            )
+        ds_name = ds_meta["name"]
+
+        df = _normalize_to_polars(data)
+        events = df.to_dicts()
+
+        response = self._def_http.post(
+            "/api/v1/log",
+            json={"dataset": ds_name, "events": events},
+        )
+        response.raise_for_status()
+
+    def erase(
+        self,
+        dataset: type,
+        entity_ids: list[str],
+    ) -> None:
+        """Erase entities from a dataset (GDPR deletion).
+
+        Produces CDC delete events to the dataset's Kafka topic.
+        The engine processes these as tombstones in RocksDB.
+
+        Args:
+            dataset: A @dataset-decorated class.
+            entity_ids: Entity IDs to erase.
+
+        Raises:
+            httpx.HTTPStatusError: On non-2xx response.
+        """
+        ds_meta = getattr(dataset, "_dataset_meta", None)
+        if ds_meta is None:
+            raise ValueError(
+                f"'{dataset.__name__}' is not a registered dataset. "
+                f"Did you decorate it with @dataset?"
+            )
+        ds_name = ds_meta["name"]
+
+        response = self._def_http.post(
+            "/api/v1/erase",
+            json={"dataset": ds_name, "entity_ids": entity_ids},
+        )
+        response.raise_for_status()
