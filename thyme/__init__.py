@@ -11,6 +11,9 @@ def __getattr__(name: str):
     if name == "ThymeResult":
         from thyme.result import ThymeResult
         return ThymeResult
+    if name == "ThymeClient":
+        from thyme.client import ThymeClient
+        return ThymeClient
     raise AttributeError(f"module 'thyme' has no attribute {name!r}")
 
 
@@ -22,4 +25,5 @@ __all__ = [
     "source", "BigQuerySource", "IcebergSource", "KafkaSource", "KinesisSource", "PostgresSource", "S3JsonSource", "SnowflakeSource",
     "expectations",
     "ThymeResult",
+    "ThymeClient",
 ]
