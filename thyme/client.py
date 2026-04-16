@@ -6,6 +6,7 @@ extract training data offline, log data, and inspect state.
 
 from __future__ import annotations
 
+import io
 from typing import Any, Union
 
 import httpx
@@ -14,6 +15,9 @@ import polars as pl
 from thyme.config import Config
 from thyme.result import ThymeResult
 from thyme.types import schema_from_featureset
+
+_ARROW_IPC_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
+_ARROW_ACCEPT = f"{_ARROW_IPC_CONTENT_TYPE}, application/json;q=0.9"
 
 
 def _normalize_to_polars(
@@ -44,6 +48,17 @@ def _get_featureset_meta(featureset: type) -> dict:
             f"Did you decorate it with @featureset?"
         )
     return meta
+
+
+def _is_arrow_ipc_response(response: httpx.Response) -> bool:
+    """Check if the response contains Arrow IPC data."""
+    content_type = response.headers.get("content-type", "")
+    return _ARROW_IPC_CONTENT_TYPE in content_type
+
+
+def _read_arrow_ipc(response: httpx.Response) -> pl.DataFrame:
+    """Read Arrow IPC stream bytes from a response into a Polars DataFrame."""
+    return pl.read_ipc_stream(io.BytesIO(response.content))
 
 
 def _features_to_row(features: dict[str, Any], schema: pl.Schema) -> dict[str, Any]:
@@ -150,17 +165,20 @@ class ThymeClient:
         response = self._http.post(
             "/features/batch",
             json={"featureset": fs_name, "entity_ids": entity_ids},
+            headers={"accept": _ARROW_ACCEPT},
         )
         response.raise_for_status()
-        data = response.json()
 
-        results = data.get("results", [])
-        rows = [_features_to_row(r["features"], schema) for r in results]
-
-        if not rows:
-            df = pl.DataFrame(schema=schema)
+        if _is_arrow_ipc_response(response):
+            df = _read_arrow_ipc(response)
         else:
-            df = pl.DataFrame(rows, schema=schema)
+            data = response.json()
+            results = data.get("results", [])
+            rows = [_features_to_row(r["features"], schema) for r in results]
+            if not rows:
+                df = pl.DataFrame(schema=schema)
+            else:
+                df = pl.DataFrame(rows, schema=schema)
 
         return ThymeResult(df, metadata={
             "entity_type": fs_name,
@@ -199,6 +217,7 @@ class ThymeClient:
         entities_df = _normalize_to_polars(entities)
 
         all_rows: list[dict[str, Any]] = []
+        all_dfs: list[pl.DataFrame] = []
 
         # Process in batches
         for offset in range(0, len(entities_df), batch_size):
@@ -214,20 +233,28 @@ class ThymeClient:
             response = self._http.post(
                 "/features/offline",
                 json={"featureset": fs_name, "queries": queries},
+                headers={"accept": _ARROW_ACCEPT},
             )
             response.raise_for_status()
-            data = response.json()
 
-            for i, result_item in enumerate(data.get("results", [])):
-                entity_row = batch.row(i, named=True)
-                row = {
-                    entity_column: entity_row[entity_column],
-                    timestamp_column: entity_row[timestamp_column],
-                }
-                row.update(_features_to_row(result_item["features"], schema))
-                all_rows.append(row)
+            if _is_arrow_ipc_response(response):
+                batch_df = _read_arrow_ipc(response)
+                all_dfs.append(batch_df)
+            else:
+                data = response.json()
+                for i, result_item in enumerate(data.get("results", [])):
+                    entity_row = batch.row(i, named=True)
+                    row = {
+                        entity_column: entity_row[entity_column],
+                        timestamp_column: entity_row[timestamp_column],
+                    }
+                    row.update(_features_to_row(result_item["features"], schema))
+                    all_rows.append(row)
 
-        if not all_rows:
+        # Merge Arrow IPC DataFrames if any
+        if all_dfs:
+            df = pl.concat(all_dfs)
+        elif not all_rows:
             # Build empty DataFrame with entity columns + feature columns
             combined_schema = {
                 entity_column: entities_df.schema.get(entity_column, pl.Utf8),

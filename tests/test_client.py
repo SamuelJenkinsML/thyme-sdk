@@ -577,3 +577,146 @@ class TestQueryOffline:
                 entity_column="entity_id",
                 timestamp_column="timestamp",
             )
+
+
+# ---------------------------------------------------------------------------
+# Arrow IPC content negotiation
+# ---------------------------------------------------------------------------
+
+
+class TestArrowIPC:
+    """Given a server that returns Arrow IPC, when querying batch/offline,
+    then the SDK deserializes Arrow IPC correctly."""
+
+    def test_query_batch_deserializes_arrow_ipc(self):
+        pa = pytest.importorskip("pyarrow")
+        import pyarrow.ipc as ipc
+        import io
+
+        # given: mock server returns Arrow IPC bytes
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+            {"name": "count", "dtype": "int", "id": 2},
+        ])
+        table = pa.table({"score": [1.5, 2.5], "count": [10, 20]})
+        buf = io.BytesIO()
+        writer = ipc.new_stream(buf, table.schema)
+        writer.write_table(table)
+        writer.close()
+        arrow_bytes = buf.getvalue()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=arrow_bytes,
+                headers={"content-type": "application/vnd.apache.arrow.stream"},
+            )
+
+        transport = httpx.MockTransport(handler)
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+
+        # when
+        result = client.query_batch(fs, ["e1", "e2"])
+
+        # then
+        assert len(result) == 2
+        dicts = result.to_dict()
+        assert dicts[0]["score"] == 1.5
+        assert dicts[1]["count"] == 20
+
+    def test_query_batch_sends_arrow_accept_header(self):
+        pytest.importorskip("pyarrow")
+        captured = []
+
+        # given: mock server captures request, returns JSON fallback
+        fs = _make_featureset_class("UF", [
+            {"name": "v", "dtype": "float", "id": 1},
+        ])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, json={
+                "results": [
+                    {"entity_type": "UF", "entity_id": "e1", "features": {"v": 1.0}, "mode": "featureset"},
+                ]
+            })
+
+        transport = httpx.MockTransport(handler)
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+
+        # when
+        client.query_batch(fs, ["e1"])
+
+        # then: accept header includes arrow
+        accept = captured[0].headers.get("accept", "")
+        assert "application/vnd.apache.arrow.stream" in accept
+
+    def test_query_batch_falls_back_to_json(self):
+        pytest.importorskip("pyarrow")
+
+        # given: server returns JSON (no arrow)
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+        ])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={
+                "results": [
+                    {"entity_type": "UF", "entity_id": "e1", "features": {"score": 3.0}, "mode": "featureset"},
+                ]
+            })
+
+        transport = httpx.MockTransport(handler)
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+
+        # when
+        result = client.query_batch(fs, ["e1"])
+
+        # then: still works via JSON fallback
+        assert result.to_dict()[0]["score"] == 3.0
+
+    def test_query_offline_deserializes_arrow_ipc(self):
+        pa = pytest.importorskip("pyarrow")
+        import pyarrow.ipc as ipc
+        import io
+
+        # given
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+        ])
+        table = pa.table({
+            "entity_id": ["e1"],
+            "timestamp": ["2026-01-01T00:00:00Z"],
+            "score": [4.5],
+        })
+        buf = io.BytesIO()
+        writer = ipc.new_stream(buf, table.schema)
+        writer.write_table(table)
+        writer.close()
+        arrow_bytes = buf.getvalue()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=arrow_bytes,
+                headers={"content-type": "application/vnd.apache.arrow.stream"},
+            )
+
+        transport = httpx.MockTransport(handler)
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+
+        # when
+        result = client.query_offline(
+            fs,
+            [{"entity_id": "e1", "timestamp": "2026-01-01T00:00:00Z"}],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+        )
+
+        # then
+        assert len(result) == 1
+        assert result.to_dict()[0]["score"] == 4.5
