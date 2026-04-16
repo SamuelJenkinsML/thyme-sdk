@@ -137,6 +137,9 @@ class MockContext:
     def __init__(self) -> None:
         # (output_dataset, pipeline_name, group_key_str) -> _GroupState
         self._group_states: dict[tuple[str, str, str], _GroupState] = {}
+        # Polars-backed storage: (output_dataset, pipeline_name) -> pl.DataFrame
+        # Columns: [group_key, timestamp_secs, *value_fields]
+        self._polars_states: dict[tuple[str, str], list[dict]] = {}
 
     def add_events(
         self,
@@ -202,11 +205,22 @@ class MockContext:
                             if isinstance(val, (int, float)):
                                 values[field_name] = float(val)
 
-                    # Store in group state
+                    # Store in group state (legacy dict-based)
                     state_key = (output_dataset, pipe_name, group_key_str)
                     if state_key not in self._group_states:
                         self._group_states[state_key] = _GroupState()
                     self._group_states[state_key].add_event(ts_secs, values)
+
+                    # Store in Polars layer
+                    polars_key = (output_dataset, pipe_name)
+                    if polars_key not in self._polars_states:
+                        self._polars_states[polars_key] = []
+                    polars_row = {
+                        "group_key": group_key_str,
+                        "timestamp_secs": ts_secs,
+                    }
+                    polars_row.update(values)
+                    self._polars_states[polars_key].append(polars_row)
 
         return violations
 
@@ -254,6 +268,52 @@ class MockContext:
                     result[spec["output_field"]] = group.compute_aggregate(spec, ref_time)
 
         return result
+
+    def add_events_df(
+        self,
+        dataset_class: type,
+        events: Any,
+    ) -> list[ExpectationViolation]:
+        """Ingest events from a Polars DataFrame. Delegates to add_events.
+
+        Args:
+            dataset_class: The dataset class to ingest into.
+            events: A Polars DataFrame with the same columns as list[dict] events.
+
+        Returns:
+            List of expectation violations.
+        """
+        return self.add_events(dataset_class, events.to_dicts())
+
+    def get_aggregates_df(
+        self,
+        dataset_class: type,
+    ) -> Any:
+        """Return aggregated values for ALL entities as a Polars DataFrame.
+
+        Returns a DataFrame with columns: [entity_id, *output_fields].
+        """
+        import polars as pl
+
+        output_ds = dataset_class.__name__
+        rows: list[dict[str, Any]] = []
+        seen_entities: set[str] = set()
+
+        # Collect all entity IDs for this dataset
+        for (out_ds, pipe_name, group_key_str), group in self._group_states.items():
+            if out_ds != output_ds:
+                continue
+            seen_entities.add(group_key_str)
+
+        # Compute aggregates for each entity
+        for entity_id in sorted(seen_entities):
+            agg = self.get_aggregates(dataset_class, entity_id)
+            agg["entity_id"] = entity_id
+            rows.append(agg)
+
+        if not rows:
+            return pl.DataFrame()
+        return pl.DataFrame(rows)
 
     def query(
         self,

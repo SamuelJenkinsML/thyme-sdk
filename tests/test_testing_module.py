@@ -877,3 +877,121 @@ class TestMockContextQueryOffline:
         e2 = next(d for d in dicts if d["entity_id"] == "e2")
         assert e1["cnt"] == pytest.approx(1.0)
         assert e2["cnt"] == pytest.approx(2.0)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Polars engine — new DataFrame API
+# ---------------------------------------------------------------------------
+
+
+class TestPolarsDataFrameAPI:
+    """Tests for the new Polars DataFrame-based add/get methods."""
+
+    def test_add_events_df_accepts_polars(self):
+        import polars as pl
+
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class StatsDF1:
+            entity_id: str = field(key=True)
+            cnt: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def count_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(cnt=Count(window="30d"))
+
+        now = datetime.now(timezone.utc)
+        events_df = pl.DataFrame({
+            "entity_id": ["e1", "e1", "e1"],
+            "value": [1.0, 2.0, 3.0],
+            "timestamp": [
+                now.isoformat(),
+                (now - timedelta(days=1)).isoformat(),
+                (now - timedelta(days=2)).isoformat(),
+            ],
+        })
+
+        ctx = MockContext()
+        ctx.add_events_df(Source, events_df)
+        result = ctx.get_aggregates(StatsDF1, "e1")
+
+        assert result["cnt"] == pytest.approx(3.0)
+
+    def test_get_aggregates_df_returns_dataframe(self):
+        import polars as pl
+
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class StatsDF2:
+            entity_id: str = field(key=True)
+            total: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def sum_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(total=Sum(of="value", window="30d"))
+
+        now = datetime.now(timezone.utc)
+        events = [
+            {"entity_id": "e1", "value": 10.0, "timestamp": now.isoformat()},
+            {"entity_id": "e2", "value": 20.0, "timestamp": now.isoformat()},
+            {"entity_id": "e1", "value": 30.0, "timestamp": now.isoformat()},
+        ]
+
+        ctx = MockContext()
+        ctx.add_events(Source, events)
+        df = ctx.get_aggregates_df(StatsDF2)
+
+        assert isinstance(df, pl.DataFrame)
+        assert "entity_id" in df.columns
+        assert "total" in df.columns
+        assert len(df) == 2  # e1 and e2
+
+        e1_row = df.filter(pl.col("entity_id") == "e1")
+        assert e1_row["total"][0] == pytest.approx(40.0)
+
+    def test_polars_engine_10k_events_under_200ms(self):
+        """Benchmark: 10k events should process in under 200ms."""
+        import time
+
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class BenchStats:
+            entity_id: str = field(key=True)
+            cnt: float = field()
+            total: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def bench_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(
+                    cnt=Count(window="30d"),
+                    total=Sum(of="value", window="30d"),
+                )
+
+        now = datetime.now(timezone.utc)
+        events = [
+            {
+                "entity_id": f"e{i % 100}",
+                "value": float(i),
+                "timestamp": (now - timedelta(seconds=i)).isoformat(),
+            }
+            for i in range(10_000)
+        ]
+
+        ctx = MockContext()
+        start = time.monotonic()
+        ctx.add_events(Source, events)
+        # Force aggregation for all entities
+        for i in range(100):
+            ctx.get_aggregates(BenchStats, f"e{i}")
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 0.2, f"10k events took {elapsed:.3f}s, expected < 0.2s"
