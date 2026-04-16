@@ -6,7 +6,7 @@ extract training data offline, log data, and inspect state.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Union
 
 import httpx
 import polars as pl
@@ -14,6 +14,25 @@ import polars as pl
 from thyme.config import Config
 from thyme.result import ThymeResult
 from thyme.types import schema_from_featureset
+
+
+def _normalize_to_polars(
+    data: Union[pl.DataFrame, list[dict], Any],
+) -> pl.DataFrame:
+    """Normalize input data to a Polars DataFrame.
+
+    Accepts pl.DataFrame, pd.DataFrame, or list[dict].
+    """
+    if isinstance(data, pl.DataFrame):
+        return data
+    if isinstance(data, list):
+        return pl.DataFrame(data)
+    # Try pandas DataFrame
+    if hasattr(data, "to_dict"):
+        return pl.DataFrame(data.to_dict(orient="list"))
+    raise TypeError(
+        f"Expected pl.DataFrame, pd.DataFrame, or list[dict], got {type(data).__name__}"
+    )
 
 
 def _get_featureset_meta(featureset: type) -> dict:
@@ -146,4 +165,80 @@ class ThymeClient:
         return ThymeResult(df, metadata={
             "entity_type": fs_name,
             "mode": "batch",
+        })
+
+    def query_offline(
+        self,
+        featureset: type,
+        entities: pl.DataFrame | list[dict] | Any,
+        *,
+        entity_column: str,
+        timestamp_column: str,
+        batch_size: int = 5000,
+    ) -> ThymeResult:
+        """Point-in-time correct batch feature extraction for training data.
+
+        Args:
+            featureset: A @featureset-decorated class.
+            entities: Input data with entity keys and timestamps.
+                      Accepts pl.DataFrame, pd.DataFrame, or list[dict].
+            entity_column: Column name for entity IDs.
+            timestamp_column: Column name for timestamps.
+            batch_size: Number of rows per request (default 5000).
+
+        Returns:
+            ThymeResult with original entity/timestamp columns plus feature columns.
+
+        Raises:
+            httpx.HTTPStatusError: On non-2xx response from query-server.
+        """
+        meta = _get_featureset_meta(featureset)
+        fs_name = meta["name"]
+        schema = schema_from_featureset(meta)
+
+        entities_df = _normalize_to_polars(entities)
+
+        all_rows: list[dict[str, Any]] = []
+
+        # Process in batches
+        for offset in range(0, len(entities_df), batch_size):
+            batch = entities_df.slice(offset, batch_size)
+            queries = [
+                {
+                    "entity_id": str(row[entity_column]),
+                    "timestamp": str(row[timestamp_column]),
+                }
+                for row in batch.to_dicts()
+            ]
+
+            response = self._http.post(
+                "/features/offline",
+                json={"featureset": fs_name, "queries": queries},
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            for i, result_item in enumerate(data.get("results", [])):
+                entity_row = batch.row(i, named=True)
+                row = {
+                    entity_column: entity_row[entity_column],
+                    timestamp_column: entity_row[timestamp_column],
+                }
+                row.update(_features_to_row(result_item["features"], schema))
+                all_rows.append(row)
+
+        if not all_rows:
+            # Build empty DataFrame with entity columns + feature columns
+            combined_schema = {
+                entity_column: entities_df.schema.get(entity_column, pl.Utf8),
+                timestamp_column: entities_df.schema.get(timestamp_column, pl.Utf8),
+            }
+            combined_schema.update(schema)
+            df = pl.DataFrame(schema=combined_schema)
+        else:
+            df = pl.DataFrame(all_rows)
+
+        return ThymeResult(df, metadata={
+            "entity_type": fs_name,
+            "mode": "offline",
         })

@@ -30,7 +30,9 @@ class _GroupState:
     def add_event(self, timestamp_secs: int, values: dict[str, float]) -> None:
         self.events.append(_EventEntry(timestamp_secs=timestamp_secs, values=values))
 
-    def compute_aggregate(self, agg_spec: dict, reference_time: int) -> float:
+    def compute_aggregate(
+        self, agg_spec: dict, reference_time: int, *, upper_bound: int | None = None,
+    ) -> float:
         """Compute one aggregate over events within the window.
 
         Mirrors the Rust engine's semantics:
@@ -39,11 +41,23 @@ class _GroupState:
         - avg: sum / count (0.0 if empty)
         - min: minimum field value in window (0.0 if empty)
         - max: maximum field value in window (0.0 if empty)
+
+        Args:
+            agg_spec: Aggregation specification dict.
+            reference_time: The reference time for windowing (epoch seconds).
+            upper_bound: If set, only include events with timestamp <= upper_bound.
+                         Used for point-in-time correct offline queries.
         """
         window_secs = parse_window_duration(agg_spec["window"])
         cutoff = (reference_time - window_secs) if window_secs > 0 else 0
 
-        in_window = [e for e in self.events if e.timestamp_secs >= cutoff]
+        if upper_bound is not None:
+            in_window = [
+                e for e in self.events
+                if e.timestamp_secs >= cutoff and e.timestamp_secs <= upper_bound
+            ]
+        else:
+            in_window = [e for e in self.events if e.timestamp_secs >= cutoff]
 
         agg_type = agg_spec["type"]
         field_name = agg_spec.get("field", "")
@@ -336,3 +350,136 @@ class MockContext:
                     result[spec["output_field"]] = group.compute_aggregate(spec, ref_time)
 
         return result
+
+    def _get_aggregates_at_time(
+        self,
+        dataset_name: str,
+        entity_id: str,
+        at_timestamp_secs: int,
+    ) -> dict[str, Any]:
+        """Like _get_aggregates_by_name but with point-in-time semantics.
+
+        Only considers events with timestamp_secs <= at_timestamp_secs.
+        Uses at_timestamp_secs as the reference time for windowing.
+        """
+        from thyme.dataset import _PIPELINE_REGISTRY
+
+        result: dict[str, Any] = {}
+
+        for (_out_ds, _pipe_name), pipe_meta in _PIPELINE_REGISTRY.items():
+            if pipe_meta["output_dataset"] != dataset_name:
+                continue
+
+            pipe_name = pipe_meta["name"]
+            operators = pipe_meta.get("operators", [])
+
+            for op in operators:
+                agg_op = op.get("aggregate")
+                if agg_op is None:
+                    continue
+
+                agg_specs = agg_op["specs"]
+                state_key = (dataset_name, pipe_name, entity_id)
+                group = self._group_states.get(state_key)
+
+                if group is None or not group.events:
+                    for spec in agg_specs:
+                        result[spec["output_field"]] = 0.0
+                    continue
+
+                for spec in agg_specs:
+                    result[spec["output_field"]] = group.compute_aggregate(
+                        spec, at_timestamp_secs, upper_bound=at_timestamp_secs,
+                    )
+
+        return result
+
+    def _query_at_time(
+        self,
+        featureset_class: type,
+        entity_id: str,
+        at_timestamp_secs: int,
+    ) -> dict[str, Any]:
+        """Like query() but with point-in-time semantics."""
+        from thyme.featureset import _FEATURESET_REGISTRY
+
+        fs_name = featureset_class.__name__
+        fs_meta = _FEATURESET_REGISTRY.get(fs_name)
+        if fs_meta is None:
+            raise ValueError(f"Featureset '{fs_name}' not found in registry.")
+
+        features: dict[str, Any] = {}
+        extractors = fs_meta.get("extractors", [])
+
+        # Phase 1: extractors with deps — seed from PIT aggregates
+        for ext in extractors:
+            if not ext.get("deps"):
+                continue
+            for dep_name in ext["deps"]:
+                aggregates = self._get_aggregates_at_time(
+                    dep_name, entity_id, at_timestamp_secs,
+                )
+                for output_feat in ext["outputs"]:
+                    if output_feat in aggregates:
+                        features[output_feat] = aggregates[output_feat]
+
+        # Phase 2: pure-transform extractors (no deps)
+        for ext in extractors:
+            if ext.get("deps"):
+                continue
+
+            method = getattr(featureset_class, ext["name"], None)
+            if method is None:
+                continue
+
+            input_vals = [features.get(name, 0.0) for name in ext["inputs"]]
+            result = method(None, None, *input_vals)
+
+            outputs = ext["outputs"]
+            if len(outputs) == 1:
+                features[outputs[0]] = result
+            else:
+                for i, out_name in enumerate(outputs):
+                    features[out_name] = result[i]
+
+        return features
+
+    def query_offline(
+        self,
+        featureset_class: type,
+        entities: list[dict],
+        *,
+        entity_column: str = "entity_id",
+        timestamp_column: str = "timestamp",
+    ) -> Any:
+        """Point-in-time correct batch feature extraction.
+
+        Args:
+            featureset_class: A @featureset-decorated class.
+            entities: List of dicts with entity_column and timestamp_column keys.
+            entity_column: Column name for entity IDs.
+            timestamp_column: Column name for timestamps.
+
+        Returns:
+            ThymeResult with entity/timestamp columns plus feature columns.
+        """
+        import polars as pl
+        from thyme.result import ThymeResult
+
+        rows: list[dict[str, Any]] = []
+        for entity in entities:
+            eid = entity[entity_column]
+            ts_val = entity[timestamp_column]
+            ts_secs = _parse_timestamp_secs(ts_val)
+
+            features = self._query_at_time(featureset_class, eid, ts_secs)
+            row = {entity_column: eid, timestamp_column: ts_val}
+            row.update(features)
+            rows.append(row)
+
+        if not rows:
+            df = pl.DataFrame()
+        else:
+            df = pl.DataFrame(rows)
+
+        return ThymeResult(df, metadata={"mode": "offline"})

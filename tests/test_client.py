@@ -390,3 +390,190 @@ class TestAuthHeaders:
 
         # then
         assert captured_requests[0].headers["authorization"] == "Bearer secret-key-123"
+
+
+# ---------------------------------------------------------------------------
+# query_offline() — point-in-time batch extraction
+# ---------------------------------------------------------------------------
+
+
+def _offline_mock_transport() -> httpx.MockTransport:
+    """Mock transport that returns offline query results matching the request body."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        results = []
+        for pair in body.get("queries", []):
+            results.append({
+                "entity_id": pair["entity_id"],
+                "timestamp": pair["timestamp"],
+                "features": {"score": 1.0},
+            })
+        return httpx.Response(200, json={"results": results})
+
+    return httpx.MockTransport(handler)
+
+
+class TestQueryOffline:
+    """Given entities with timestamps, when calling query_offline(), then PIT features returned."""
+
+    def test_query_offline_returns_thyme_result(self):
+        # given
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+        ])
+        transport = _offline_mock_transport()
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+        entities = [
+            {"entity_id": "e1", "timestamp": "2026-01-01T00:00:00Z"},
+        ]
+
+        # when
+        result = client.query_offline(
+            fs, entities, entity_column="entity_id", timestamp_column="timestamp",
+        )
+
+        # then
+        assert isinstance(result, ThymeResult)
+        assert len(result) == 1
+
+    def test_query_offline_returns_correct_values(self):
+        # given
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+        ])
+        transport = _offline_mock_transport()
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+        entities = [
+            {"entity_id": "e1", "timestamp": "2026-01-01T00:00:00Z"},
+            {"entity_id": "e2", "timestamp": "2026-01-02T00:00:00Z"},
+        ]
+
+        # when
+        result = client.query_offline(
+            fs, entities, entity_column="entity_id", timestamp_column="timestamp",
+        )
+
+        # then
+        dicts = result.to_dict()
+        assert len(dicts) == 2
+        assert dicts[0]["score"] == 1.0
+        assert dicts[1]["score"] == 1.0
+
+    def test_query_offline_preserves_entity_columns(self):
+        # given
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+        ])
+        transport = _offline_mock_transport()
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+        entities = [
+            {"entity_id": "e1", "timestamp": "2026-01-01T00:00:00Z"},
+        ]
+
+        # when
+        result = client.query_offline(
+            fs, entities, entity_column="entity_id", timestamp_column="timestamp",
+        )
+
+        # then
+        df = result.to_polars()
+        assert "entity_id" in df.columns
+        assert "timestamp" in df.columns
+        assert df["entity_id"][0] == "e1"
+
+    def test_query_offline_accepts_polars_input(self):
+        # given
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+        ])
+        transport = _offline_mock_transport()
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+        entities_df = pl.DataFrame({
+            "entity_id": ["e1", "e2"],
+            "timestamp": ["2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"],
+        })
+
+        # when
+        result = client.query_offline(
+            fs, entities_df, entity_column="entity_id", timestamp_column="timestamp",
+        )
+
+        # then
+        assert len(result) == 2
+
+    def test_query_offline_accepts_list_of_dicts(self):
+        # given
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+        ])
+        transport = _offline_mock_transport()
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+
+        # when
+        result = client.query_offline(
+            fs,
+            [{"entity_id": "e1", "timestamp": "2026-01-01T00:00:00Z"}],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+        )
+
+        # then
+        assert len(result) == 1
+
+    def test_query_offline_sends_correct_request_body(self):
+        # given
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+        ])
+        captured = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(json.loads(request.content))
+            return httpx.Response(200, json={"results": [
+                {"entity_id": "e1", "timestamp": "2026-01-01T00:00:00Z", "features": {"score": 1.0}},
+            ]})
+
+        transport = httpx.MockTransport(handler)
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+
+        # when
+        client.query_offline(
+            fs,
+            [{"entity_id": "e1", "timestamp": "2026-01-01T00:00:00Z"}],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+        )
+
+        # then
+        assert len(captured) == 1
+        body = captured[0]
+        assert body["featureset"] == "UF"
+        assert body["queries"] == [
+            {"entity_id": "e1", "timestamp": "2026-01-01T00:00:00Z"},
+        ]
+
+    def test_query_offline_raises_on_http_error(self):
+        # given
+        fs = _make_featureset_class("UF", [
+            {"name": "score", "dtype": "float", "id": 1},
+        ])
+        mock_response = httpx.Response(500, json={"error": "boom"})
+        transport = _mock_transport({"/features/offline": mock_response})
+        config = Config(query_url="http://test:8081")
+        client = ThymeClient(config=config, _transport=transport)
+
+        # when / then
+        with pytest.raises(Exception):
+            client.query_offline(
+                fs,
+                [{"entity_id": "e1", "timestamp": "2026-01-01T00:00:00Z"}],
+                entity_column="entity_id",
+                timestamp_column="timestamp",
+            )
