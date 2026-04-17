@@ -30,7 +30,9 @@ class _GroupState:
     def add_event(self, timestamp_secs: int, values: dict[str, float]) -> None:
         self.events.append(_EventEntry(timestamp_secs=timestamp_secs, values=values))
 
-    def compute_aggregate(self, agg_spec: dict, reference_time: int) -> float:
+    def compute_aggregate(
+        self, agg_spec: dict, reference_time: int, *, upper_bound: int | None = None,
+    ) -> float:
         """Compute one aggregate over events within the window.
 
         Mirrors the Rust engine's semantics:
@@ -39,11 +41,23 @@ class _GroupState:
         - avg: sum / count (0.0 if empty)
         - min: minimum field value in window (0.0 if empty)
         - max: maximum field value in window (0.0 if empty)
+
+        Args:
+            agg_spec: Aggregation specification dict.
+            reference_time: The reference time for windowing (epoch seconds).
+            upper_bound: If set, only include events with timestamp <= upper_bound.
+                         Used for point-in-time correct offline queries.
         """
         window_secs = parse_window_duration(agg_spec["window"])
         cutoff = (reference_time - window_secs) if window_secs > 0 else 0
 
-        in_window = [e for e in self.events if e.timestamp_secs >= cutoff]
+        if upper_bound is not None:
+            in_window = [
+                e for e in self.events
+                if e.timestamp_secs >= cutoff and e.timestamp_secs <= upper_bound
+            ]
+        else:
+            in_window = [e for e in self.events if e.timestamp_secs >= cutoff]
 
         agg_type = agg_spec["type"]
         field_name = agg_spec.get("field", "")
@@ -123,6 +137,9 @@ class MockContext:
     def __init__(self) -> None:
         # (output_dataset, pipeline_name, group_key_str) -> _GroupState
         self._group_states: dict[tuple[str, str, str], _GroupState] = {}
+        # Polars-backed storage: (output_dataset, pipeline_name) -> pl.DataFrame
+        # Columns: [group_key, timestamp_secs, *value_fields]
+        self._polars_states: dict[tuple[str, str], list[dict]] = {}
 
     def add_events(
         self,
@@ -188,11 +205,22 @@ class MockContext:
                             if isinstance(val, (int, float)):
                                 values[field_name] = float(val)
 
-                    # Store in group state
+                    # Store in group state (legacy dict-based)
                     state_key = (output_dataset, pipe_name, group_key_str)
                     if state_key not in self._group_states:
                         self._group_states[state_key] = _GroupState()
                     self._group_states[state_key].add_event(ts_secs, values)
+
+                    # Store in Polars layer
+                    polars_key = (output_dataset, pipe_name)
+                    if polars_key not in self._polars_states:
+                        self._polars_states[polars_key] = []
+                    polars_row = {
+                        "group_key": group_key_str,
+                        "timestamp_secs": ts_secs,
+                    }
+                    polars_row.update(values)
+                    self._polars_states[polars_key].append(polars_row)
 
         return violations
 
@@ -240,6 +268,52 @@ class MockContext:
                     result[spec["output_field"]] = group.compute_aggregate(spec, ref_time)
 
         return result
+
+    def add_events_df(
+        self,
+        dataset_class: type,
+        events: Any,
+    ) -> list[ExpectationViolation]:
+        """Ingest events from a Polars DataFrame. Delegates to add_events.
+
+        Args:
+            dataset_class: The dataset class to ingest into.
+            events: A Polars DataFrame with the same columns as list[dict] events.
+
+        Returns:
+            List of expectation violations.
+        """
+        return self.add_events(dataset_class, events.to_dicts())
+
+    def get_aggregates_df(
+        self,
+        dataset_class: type,
+    ) -> Any:
+        """Return aggregated values for ALL entities as a Polars DataFrame.
+
+        Returns a DataFrame with columns: [entity_id, *output_fields].
+        """
+        import polars as pl
+
+        output_ds = dataset_class.__name__
+        rows: list[dict[str, Any]] = []
+        seen_entities: set[str] = set()
+
+        # Collect all entity IDs for this dataset
+        for (out_ds, pipe_name, group_key_str), group in self._group_states.items():
+            if out_ds != output_ds:
+                continue
+            seen_entities.add(group_key_str)
+
+        # Compute aggregates for each entity
+        for entity_id in sorted(seen_entities):
+            agg = self.get_aggregates(dataset_class, entity_id)
+            agg["entity_id"] = entity_id
+            rows.append(agg)
+
+        if not rows:
+            return pl.DataFrame()
+        return pl.DataFrame(rows)
 
     def query(
         self,
@@ -336,3 +410,136 @@ class MockContext:
                     result[spec["output_field"]] = group.compute_aggregate(spec, ref_time)
 
         return result
+
+    def _get_aggregates_at_time(
+        self,
+        dataset_name: str,
+        entity_id: str,
+        at_timestamp_secs: int,
+    ) -> dict[str, Any]:
+        """Like _get_aggregates_by_name but with point-in-time semantics.
+
+        Only considers events with timestamp_secs <= at_timestamp_secs.
+        Uses at_timestamp_secs as the reference time for windowing.
+        """
+        from thyme.dataset import _PIPELINE_REGISTRY
+
+        result: dict[str, Any] = {}
+
+        for (_out_ds, _pipe_name), pipe_meta in _PIPELINE_REGISTRY.items():
+            if pipe_meta["output_dataset"] != dataset_name:
+                continue
+
+            pipe_name = pipe_meta["name"]
+            operators = pipe_meta.get("operators", [])
+
+            for op in operators:
+                agg_op = op.get("aggregate")
+                if agg_op is None:
+                    continue
+
+                agg_specs = agg_op["specs"]
+                state_key = (dataset_name, pipe_name, entity_id)
+                group = self._group_states.get(state_key)
+
+                if group is None or not group.events:
+                    for spec in agg_specs:
+                        result[spec["output_field"]] = 0.0
+                    continue
+
+                for spec in agg_specs:
+                    result[spec["output_field"]] = group.compute_aggregate(
+                        spec, at_timestamp_secs, upper_bound=at_timestamp_secs,
+                    )
+
+        return result
+
+    def _query_at_time(
+        self,
+        featureset_class: type,
+        entity_id: str,
+        at_timestamp_secs: int,
+    ) -> dict[str, Any]:
+        """Like query() but with point-in-time semantics."""
+        from thyme.featureset import _FEATURESET_REGISTRY
+
+        fs_name = featureset_class.__name__
+        fs_meta = _FEATURESET_REGISTRY.get(fs_name)
+        if fs_meta is None:
+            raise ValueError(f"Featureset '{fs_name}' not found in registry.")
+
+        features: dict[str, Any] = {}
+        extractors = fs_meta.get("extractors", [])
+
+        # Phase 1: extractors with deps — seed from PIT aggregates
+        for ext in extractors:
+            if not ext.get("deps"):
+                continue
+            for dep_name in ext["deps"]:
+                aggregates = self._get_aggregates_at_time(
+                    dep_name, entity_id, at_timestamp_secs,
+                )
+                for output_feat in ext["outputs"]:
+                    if output_feat in aggregates:
+                        features[output_feat] = aggregates[output_feat]
+
+        # Phase 2: pure-transform extractors (no deps)
+        for ext in extractors:
+            if ext.get("deps"):
+                continue
+
+            method = getattr(featureset_class, ext["name"], None)
+            if method is None:
+                continue
+
+            input_vals = [features.get(name, 0.0) for name in ext["inputs"]]
+            result = method(None, None, *input_vals)
+
+            outputs = ext["outputs"]
+            if len(outputs) == 1:
+                features[outputs[0]] = result
+            else:
+                for i, out_name in enumerate(outputs):
+                    features[out_name] = result[i]
+
+        return features
+
+    def query_offline(
+        self,
+        featureset_class: type,
+        entities: list[dict],
+        *,
+        entity_column: str = "entity_id",
+        timestamp_column: str = "timestamp",
+    ) -> Any:
+        """Point-in-time correct batch feature extraction.
+
+        Args:
+            featureset_class: A @featureset-decorated class.
+            entities: List of dicts with entity_column and timestamp_column keys.
+            entity_column: Column name for entity IDs.
+            timestamp_column: Column name for timestamps.
+
+        Returns:
+            ThymeResult with entity/timestamp columns plus feature columns.
+        """
+        import polars as pl
+        from thyme.result import ThymeResult
+
+        rows: list[dict[str, Any]] = []
+        for entity in entities:
+            eid = entity[entity_column]
+            ts_val = entity[timestamp_column]
+            ts_secs = _parse_timestamp_secs(ts_val)
+
+            features = self._query_at_time(featureset_class, eid, ts_secs)
+            row = {entity_column: eid, timestamp_column: ts_val}
+            row.update(features)
+            rows.append(row)
+
+        if not rows:
+            df = pl.DataFrame()
+        else:
+            df = pl.DataFrame(rows)
+
+        return ThymeResult(df, metadata={"mode": "offline"})

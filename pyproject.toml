@@ -10,7 +10,13 @@ dependencies = [
     "protobuf>=5.27.0",
     "rich>=13.0",
     "anthropic>=0.40.0",
+    "polars>=1.0",
 ]
+
+[project.optional-dependencies]
+pandas = ["pandas>=2.0"]
+arrow = ["pyarrow>=15.0"]
+all = ["pandas>=2.0", "pyarrow>=15.0"]
 
 [project.scripts]
 thyme = "thyme.cli:main"

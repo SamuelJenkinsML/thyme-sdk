@@ -675,3 +675,323 @@ class TestCrossValidationWithE2E:
         assert low["review_count_7d"] == pytest.approx(3, abs=0.01)
         assert low["max_rating_30d"] == pytest.approx(2.5, abs=0.01)
         assert low["is_highly_rated"] is False
+
+
+# ---------------------------------------------------------------------------
+# MockContext.query_offline — point-in-time correct feature extraction
+# ---------------------------------------------------------------------------
+
+
+class TestMockContextQueryOffline:
+    """Given events at multiple timestamps, when query_offline at a past timestamp,
+    then only events visible at that timestamp are used for aggregation."""
+
+    def test_query_offline_point_in_time_correct(self):
+        # given: events at t1 and t2
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class Stats:
+            entity_id: str = field(key=True)
+            cnt: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def count_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(cnt=Count(window="30d"))
+
+        @featureset
+        class F:
+            entity_id: str = feature(id=1)
+            cnt: float = feature(id=2)
+
+            @extractor(deps=[Stats])
+            @extractor_inputs("entity_id")
+            @extractor_outputs("cnt")
+            def get_cnt(cls, ts, entity_ids):
+                return Stats.lookup(ts, entity_id=entity_ids)
+
+        now = datetime.now(timezone.utc)
+        t1 = now - timedelta(days=5)
+        t2 = now
+
+        events = [
+            {"entity_id": "e1", "value": 1.0, "timestamp": t1.isoformat()},
+            {"entity_id": "e1", "value": 2.0, "timestamp": t2.isoformat()},
+        ]
+
+        ctx = MockContext()
+        ctx.add_events(Source, events)
+
+        # when: query at t1 (only 1 event visible)
+        result = ctx.query_offline(
+            F,
+            [{"entity_id": "e1", "timestamp": t1.isoformat()}],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+        )
+
+        # then: count should be 1 (only t1 event visible)
+        dicts = result.to_dict()
+        assert dicts[0]["cnt"] == pytest.approx(1.0)
+
+    def test_query_offline_at_latest_sees_all_events(self):
+        # given
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class Stats2:
+            entity_id: str = field(key=True)
+            total: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def sum_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(total=Sum(of="value", window="30d"))
+
+        @featureset
+        class F2:
+            entity_id: str = feature(id=1)
+            total: float = feature(id=2)
+
+            @extractor(deps=[Stats2])
+            @extractor_inputs("entity_id")
+            @extractor_outputs("total")
+            def get_total(cls, ts, entity_ids):
+                return Stats2.lookup(ts, entity_id=entity_ids)
+
+        now = datetime.now(timezone.utc)
+        events = [
+            {"entity_id": "e1", "value": 10.0, "timestamp": (now - timedelta(days=2)).isoformat()},
+            {"entity_id": "e1", "value": 20.0, "timestamp": (now - timedelta(days=1)).isoformat()},
+            {"entity_id": "e1", "value": 30.0, "timestamp": now.isoformat()},
+        ]
+
+        ctx = MockContext()
+        ctx.add_events(Source, events)
+
+        # when: query at now (all 3 events visible)
+        result = ctx.query_offline(
+            F2,
+            [{"entity_id": "e1", "timestamp": now.isoformat()}],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+        )
+
+        # then
+        dicts = result.to_dict()
+        assert dicts[0]["total"] == pytest.approx(60.0)
+
+    def test_query_offline_returns_thyme_result(self):
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class Stats3:
+            entity_id: str = field(key=True)
+            cnt: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def count_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(cnt=Count(window="30d"))
+
+        @featureset
+        class F3:
+            entity_id: str = feature(id=1)
+            cnt: float = feature(id=2)
+
+            @extractor(deps=[Stats3])
+            @extractor_inputs("entity_id")
+            @extractor_outputs("cnt")
+            def get_cnt(cls, ts, entity_ids):
+                return Stats3.lookup(ts, entity_id=entity_ids)
+
+        now = datetime.now(timezone.utc)
+        events = [
+            {"entity_id": "e1", "value": 1.0, "timestamp": now.isoformat()},
+        ]
+
+        ctx = MockContext()
+        ctx.add_events(Source, events)
+
+        from thyme.result import ThymeResult
+        result = ctx.query_offline(
+            F3,
+            [{"entity_id": "e1", "timestamp": now.isoformat()}],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+        )
+        assert isinstance(result, ThymeResult)
+
+    def test_query_offline_multiple_entities(self):
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class Stats4:
+            entity_id: str = field(key=True)
+            cnt: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def count_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(cnt=Count(window="30d"))
+
+        @featureset
+        class F4:
+            entity_id: str = feature(id=1)
+            cnt: float = feature(id=2)
+
+            @extractor(deps=[Stats4])
+            @extractor_inputs("entity_id")
+            @extractor_outputs("cnt")
+            def get_cnt(cls, ts, entity_ids):
+                return Stats4.lookup(ts, entity_id=entity_ids)
+
+        now = datetime.now(timezone.utc)
+        events = [
+            {"entity_id": "e1", "value": 1.0, "timestamp": now.isoformat()},
+            {"entity_id": "e2", "value": 2.0, "timestamp": now.isoformat()},
+            {"entity_id": "e2", "value": 3.0, "timestamp": now.isoformat()},
+        ]
+
+        ctx = MockContext()
+        ctx.add_events(Source, events)
+
+        result = ctx.query_offline(
+            F4,
+            [
+                {"entity_id": "e1", "timestamp": now.isoformat()},
+                {"entity_id": "e2", "timestamp": now.isoformat()},
+            ],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+        )
+
+        assert len(result) == 2
+        dicts = result.to_dict()
+        e1 = next(d for d in dicts if d["entity_id"] == "e1")
+        e2 = next(d for d in dicts if d["entity_id"] == "e2")
+        assert e1["cnt"] == pytest.approx(1.0)
+        assert e2["cnt"] == pytest.approx(2.0)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Polars engine — new DataFrame API
+# ---------------------------------------------------------------------------
+
+
+class TestPolarsDataFrameAPI:
+    """Tests for the new Polars DataFrame-based add/get methods."""
+
+    def test_add_events_df_accepts_polars(self):
+        import polars as pl
+
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class StatsDF1:
+            entity_id: str = field(key=True)
+            cnt: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def count_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(cnt=Count(window="30d"))
+
+        now = datetime.now(timezone.utc)
+        events_df = pl.DataFrame({
+            "entity_id": ["e1", "e1", "e1"],
+            "value": [1.0, 2.0, 3.0],
+            "timestamp": [
+                now.isoformat(),
+                (now - timedelta(days=1)).isoformat(),
+                (now - timedelta(days=2)).isoformat(),
+            ],
+        })
+
+        ctx = MockContext()
+        ctx.add_events_df(Source, events_df)
+        result = ctx.get_aggregates(StatsDF1, "e1")
+
+        assert result["cnt"] == pytest.approx(3.0)
+
+    def test_get_aggregates_df_returns_dataframe(self):
+        import polars as pl
+
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class StatsDF2:
+            entity_id: str = field(key=True)
+            total: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def sum_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(total=Sum(of="value", window="30d"))
+
+        now = datetime.now(timezone.utc)
+        events = [
+            {"entity_id": "e1", "value": 10.0, "timestamp": now.isoformat()},
+            {"entity_id": "e2", "value": 20.0, "timestamp": now.isoformat()},
+            {"entity_id": "e1", "value": 30.0, "timestamp": now.isoformat()},
+        ]
+
+        ctx = MockContext()
+        ctx.add_events(Source, events)
+        df = ctx.get_aggregates_df(StatsDF2)
+
+        assert isinstance(df, pl.DataFrame)
+        assert "entity_id" in df.columns
+        assert "total" in df.columns
+        assert len(df) == 2  # e1 and e2
+
+        e1_row = df.filter(pl.col("entity_id") == "e1")
+        assert e1_row["total"][0] == pytest.approx(40.0)
+
+    def test_polars_engine_10k_events_under_200ms(self):
+        """Benchmark: 10k events should process in under 200ms."""
+        import time
+
+        Source = _make_source()
+
+        @dataset(version=1, index=True)
+        class BenchStats:
+            entity_id: str = field(key=True)
+            cnt: float = field()
+            total: float = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def bench_pipe(cls, src):
+                return src.groupby("entity_id").aggregate(
+                    cnt=Count(window="30d"),
+                    total=Sum(of="value", window="30d"),
+                )
+
+        now = datetime.now(timezone.utc)
+        events = [
+            {
+                "entity_id": f"e{i % 100}",
+                "value": float(i),
+                "timestamp": (now - timedelta(seconds=i)).isoformat(),
+            }
+            for i in range(10_000)
+        ]
+
+        ctx = MockContext()
+        start = time.monotonic()
+        ctx.add_events(Source, events)
+        # Force aggregation for all entities
+        for i in range(100):
+            ctx.get_aggregates(BenchStats, f"e{i}")
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 0.2, f"10k events took {elapsed:.3f}s, expected < 0.2s"
