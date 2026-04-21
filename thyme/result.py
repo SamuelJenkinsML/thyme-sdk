@@ -17,15 +17,29 @@ class ThymeResult:
     Args:
         df: The underlying Polars DataFrame.
         metadata: Optional dict with context (mode, entity_type, etc.).
+        query_run_id: Server-assigned identifier for the query run, surfaced
+            via the ``X-Query-Run-Id`` response header. ``None`` when the
+            backend didn't include the header (older query-server) or the
+            call didn't produce a query run (e.g. ``inspect``).
     """
 
-    def __init__(self, df: pl.DataFrame, metadata: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        df: pl.DataFrame,
+        metadata: dict[str, Any] | None = None,
+        query_run_id: str | None = None,
+    ):
         self._df = df
         self._metadata = metadata or {}
+        self._query_run_id = query_run_id
 
     @property
     def metadata(self) -> dict[str, Any]:
         return self._metadata
+
+    @property
+    def query_run_id(self) -> str | None:
+        return self._query_run_id
 
     def to_polars(self) -> pl.DataFrame:
         """Return the underlying Polars DataFrame (zero-copy)."""

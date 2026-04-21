@@ -9,6 +9,7 @@ import httpx
 import typer
 from httpx import HTTPStatusError
 
+from thyme.client import ThymeClient
 from thyme.config import Config, clear_credentials, load_credentials, save_credentials
 from thyme.dataset import clear_registry, get_commit_payload
 
@@ -567,6 +568,364 @@ def discover(
         except (HTTPStatusError, httpx.ConnectError) as exc:
             typer.echo(f"Error committing: {exc}", err=True)
             raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Query commands: read path from the query-server.
+# ---------------------------------------------------------------------------
+
+
+_FORMATS_READ = ["table", "json", "csv", "parquet", "arrow"]
+_FORMATS_LOOKUP = ["table", "json"]
+
+
+def _render_dataframe(
+    df,
+    fmt: str,
+    output: Optional[Path],
+    limit: int,
+) -> None:
+    """Render a Polars DataFrame in the requested format."""
+    import polars as pl  # local import keeps `thyme --help` fast when polars isn't used
+
+    if not isinstance(df, pl.DataFrame):
+        df = pl.DataFrame(df)
+
+    if fmt == "parquet":
+        if output is None:
+            typer.echo("Error: --output is required for --format parquet.", err=True)
+            raise typer.Exit(1)
+        df.write_parquet(output)
+        typer.echo(f"Wrote {len(df)} row(s) to {output}", err=True)
+        return
+    if fmt == "arrow":
+        if output is None:
+            typer.echo("Error: --output is required for --format arrow.", err=True)
+            raise typer.Exit(1)
+        df.write_ipc(output)
+        typer.echo(f"Wrote {len(df)} row(s) to {output}", err=True)
+        return
+    if fmt == "csv":
+        if output is not None:
+            df.write_csv(output)
+            typer.echo(f"Wrote {len(df)} row(s) to {output}", err=True)
+        else:
+            typer.echo(df.write_csv())
+        return
+    if fmt == "json":
+        payload = json.dumps(df.to_dicts(), default=str, indent=2)
+        if output is not None:
+            output.write_text(payload)
+            typer.echo(f"Wrote {len(df)} row(s) to {output}", err=True)
+        else:
+            typer.echo(payload)
+        return
+
+    # table (default)
+    console = Console()
+    if len(df) == 0:
+        console.print("[dim](no rows)[/dim]")
+        return
+    visible = df.head(limit)
+    table = Table(show_lines=False)
+    for col in visible.columns:
+        table.add_column(col)
+    for row in visible.iter_rows(named=True):
+        table.add_row(*(str(row[c]) if row[c] is not None else "—" for c in visible.columns))
+    console.print(table)
+    if len(df) > limit:
+        console.print(
+            f"[dim]… showing {limit}/{len(df)} rows. Use --output file.parquet for the full result.[/dim]"
+        )
+
+
+def _print_results_footer(run_id: Optional[str], config: "Config") -> None:
+    """Print Chalk-style `Query run: <id>` / `Results: <url>` footer."""
+    if not run_id:
+        return
+    typer.echo(f"Query run: {run_id}", err=True)
+    url = config.query_run_url(run_id)
+    if url:
+        typer.echo(f"Results: {url}", err=True)
+
+
+def _query_error_exit(exc: Exception, endpoint: str) -> None:
+    """Uniform error handling for query commands."""
+    if isinstance(exc, HTTPStatusError):
+        typer.echo(f"Error: {exc.response.status_code} {exc.response.text}", err=True)
+    elif isinstance(exc, httpx.ConnectError):
+        typer.echo(f"Error: could not connect to {endpoint}: {exc}", err=True)
+    else:
+        typer.echo(f"Error: {exc}", err=True)
+    raise typer.Exit(1)
+
+
+@app.command()
+def query(
+    ref: str = typer.Argument(..., help="Featureset reference, e.g. 'pkg.mod:UserFeatures'"),
+    entity: list[str] = typer.Option([], "-e", "--entity", help="Entity ID (repeatable; supports @file.txt and comma split)"),
+    module_path: Optional[Path] = typer.Option(None, "-m", "--module", help="Import the module from a file path instead of dotted name"),
+    fmt: str = typer.Option("table", "-f", "--format", help=f"Output format: {', '.join(_FORMATS_READ)}"),
+    output: Optional[Path] = typer.Option(None, "-o", "--output", help="Write output to file (required for parquet/arrow)"),
+    limit: int = typer.Option(50, "--limit", help="Display truncation (table format only)"),
+    query_url: Optional[str] = typer.Option(None, "--query-url", envvar="THYME_QUERY_URL"),
+    api_key: Optional[str] = typer.Option(None, "--api-key", envvar="THYME_API_KEY"),
+) -> None:
+    """Online feature query. Auto-batches when more than one --entity is given."""
+    if fmt not in _FORMATS_READ:
+        typer.echo(f"Error: invalid --format '{fmt}'. Choose: {', '.join(_FORMATS_READ)}", err=True)
+        raise typer.Exit(1)
+
+    from thyme.cli_refs import collect_entities, resolve_ref
+
+    try:
+        featureset_cls = resolve_ref(ref, module_path=module_path, expect="featureset")
+    except (ValueError, AttributeError, FileNotFoundError, ImportError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+    entities = collect_entities(entity)
+    if not entities:
+        typer.echo("Error: at least one --entity / -e is required.", err=True)
+        raise typer.Exit(1)
+
+    config = _resolve_config()
+    if api_key:
+        config.api_key = api_key
+    if query_url:
+        config.query_url = query_url
+
+    client = ThymeClient(config=config)
+    try:
+        if len(entities) == 1:
+            result = client.query(featureset_cls, entities[0])
+        else:
+            result = client.query_batch(featureset_cls, entities)
+    except (HTTPStatusError, httpx.ConnectError, Exception) as exc:
+        client.close()
+        _query_error_exit(exc, config.query_url)
+        return  # unreachable — typer.Exit is raised
+
+    _render_dataframe(result.to_polars(), fmt, output, limit)
+    _print_results_footer(result.query_run_id, config)
+    client.close()
+
+
+@app.command("query-offline")
+def query_offline(
+    ref: str = typer.Argument(..., help="Featureset reference, e.g. 'pkg.mod:UserFeatures'"),
+    input: Optional[Path] = typer.Option(None, "-i", "--input", help=".parquet / .csv / .jsonl file with entities + timestamps"),
+    entity: list[str] = typer.Option([], "-e", "--entity", help="Ad-hoc entity ID (repeatable; pairs with --at)"),
+    at: list[str] = typer.Option([], "--at", help="ISO-8601 timestamp, paired 1:1 with --entity"),
+    entity_column: str = typer.Option("entity_id", "--entity-column", help="Entity column name when reading from --input"),
+    timestamp_column: str = typer.Option("timestamp", "--timestamp-column", help="Timestamp column name when reading from --input"),
+    batch_size: int = typer.Option(5000, "--batch-size"),
+    module_path: Optional[Path] = typer.Option(None, "-m", "--module", help="Import the module from a file path instead of dotted name"),
+    fmt: str = typer.Option("table", "-f", "--format", help=f"Output format: {', '.join(_FORMATS_READ)}"),
+    output: Optional[Path] = typer.Option(None, "-o", "--output", help="Write output to file (required for parquet/arrow)"),
+    limit: int = typer.Option(20, "--limit"),
+    query_url: Optional[str] = typer.Option(None, "--query-url", envvar="THYME_QUERY_URL"),
+    api_key: Optional[str] = typer.Option(None, "--api-key", envvar="THYME_API_KEY"),
+) -> None:
+    """Historical / batch feature query with per-row timestamps."""
+    if fmt not in _FORMATS_READ:
+        typer.echo(f"Error: invalid --format '{fmt}'. Choose: {', '.join(_FORMATS_READ)}", err=True)
+        raise typer.Exit(1)
+
+    if input is not None and entity:
+        typer.echo("Error: pass either --input OR --entity/--at pairs, not both.", err=True)
+        raise typer.Exit(1)
+    if input is None and not entity:
+        typer.echo("Error: either --input FILE or at least one --entity/--at pair is required.", err=True)
+        raise typer.Exit(1)
+    if entity and len(entity) != len(at):
+        typer.echo(f"Error: --entity count ({len(entity)}) must match --at count ({len(at)}).", err=True)
+        raise typer.Exit(1)
+
+    import polars as pl
+
+    from thyme.cli_refs import read_entities_dataframe, resolve_ref
+
+    try:
+        featureset_cls = resolve_ref(ref, module_path=module_path, expect="featureset")
+    except (ValueError, AttributeError, FileNotFoundError, ImportError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if input is not None:
+        try:
+            entities_df = read_entities_dataframe(input)
+        except (ValueError, FileNotFoundError) as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
+        if entity_column not in entities_df.columns:
+            typer.echo(f"Error: --entity-column '{entity_column}' not found in {input}. Columns: {entities_df.columns}", err=True)
+            raise typer.Exit(1)
+        if timestamp_column not in entities_df.columns:
+            typer.echo(f"Error: --timestamp-column '{timestamp_column}' not found in {input}. Columns: {entities_df.columns}", err=True)
+            raise typer.Exit(1)
+    else:
+        entities_df = pl.DataFrame({entity_column: entity, timestamp_column: at})
+
+    config = _resolve_config()
+    if api_key:
+        config.api_key = api_key
+    if query_url:
+        config.query_url = query_url
+
+    client = ThymeClient(config=config)
+    try:
+        result = client.query_offline(
+            featureset_cls,
+            entities_df,
+            entity_column=entity_column,
+            timestamp_column=timestamp_column,
+            batch_size=batch_size,
+        )
+    except (HTTPStatusError, httpx.ConnectError, Exception) as exc:
+        client.close()
+        _query_error_exit(exc, config.query_url)
+        return
+
+    _render_dataframe(result.to_polars(), fmt, output, limit)
+    _print_results_footer(result.query_run_id, config)
+    client.close()
+
+
+@app.command()
+def lookup(
+    ref: str = typer.Argument(..., help="Dataset reference, e.g. 'pkg.mod:Purchase'"),
+    entity: str = typer.Option(..., "-e", "--entity", help="Entity ID to look up"),
+    at: Optional[str] = typer.Option(None, "--at", help="Optional ISO-8601 timestamp for point-in-time lookup"),
+    module_path: Optional[Path] = typer.Option(None, "-m", "--module", help="Import the module from a file path instead of dotted name"),
+    fmt: str = typer.Option("table", "-f", "--format", help=f"Output format: {', '.join(_FORMATS_LOOKUP)}"),
+    query_url: Optional[str] = typer.Option(None, "--query-url", envvar="THYME_QUERY_URL"),
+    api_key: Optional[str] = typer.Option(None, "--api-key", envvar="THYME_API_KEY"),
+) -> None:
+    """Direct dataset point lookup (raw row, no extractors)."""
+    if fmt not in _FORMATS_LOOKUP:
+        typer.echo(f"Error: invalid --format '{fmt}'. Choose: {', '.join(_FORMATS_LOOKUP)}", err=True)
+        raise typer.Exit(1)
+
+    from thyme.cli_refs import resolve_ref
+
+    try:
+        dataset_cls = resolve_ref(ref, module_path=module_path, expect="dataset")
+    except (ValueError, AttributeError, FileNotFoundError, ImportError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+    config = _resolve_config()
+    if api_key:
+        config.api_key = api_key
+    if query_url:
+        config.query_url = query_url
+
+    client = ThymeClient(config=config)
+    try:
+        result = client.lookup(dataset_cls, entity, timestamp=at)
+    except (HTTPStatusError, httpx.ConnectError, Exception) as exc:
+        client.close()
+        _query_error_exit(exc, config.query_url)
+        return
+
+    _render_dataframe(result.to_polars(), fmt, None, 1)
+    _print_results_footer(result.query_run_id, config)
+    client.close()
+
+
+@app.command()
+def inspect(
+    ref: Optional[str] = typer.Argument(None, help="Optional featureset reference; omit to show full system status"),
+    module_path: Optional[Path] = typer.Option(None, "-m", "--module", help="Import the module from a file path instead of dotted name"),
+    json_output: bool = typer.Option(False, "--json", help="Output raw JSON"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", envvar="THYME_API_URL"),
+) -> None:
+    """Inspect system state from the definition-service.
+
+    With no REF, prints a summary matching `thyme status`. With REF, prints
+    detailed metadata for a single featureset.
+    """
+    from thyme.cli_refs import resolve_ref
+
+    config = _resolve_config()
+    if api_url:
+        config.api_base = api_url
+    client = ThymeClient(config=config)
+
+    try:
+        if ref is None:
+            data = client.inspect()
+        else:
+            try:
+                featureset_cls = resolve_ref(ref, module_path=module_path, expect="featureset")
+            except (ValueError, AttributeError, FileNotFoundError, ImportError) as exc:
+                typer.echo(f"Error: {exc}", err=True)
+                client.close()
+                raise typer.Exit(1)
+            data = client.inspect(featureset_cls)
+    except (HTTPStatusError, httpx.ConnectError) as exc:
+        client.close()
+        _query_error_exit(exc, config.api_base)
+        return
+    finally:
+        client.close()
+
+    if json_output:
+        typer.echo(json.dumps(data, indent=2, default=str))
+        return
+
+    console = Console()
+    if ref is None:
+        # system-wide summary (mirrors status but via ThymeClient.inspect)
+        if data.get("featuresets"):
+            t = Table(title="Featuresets")
+            t.add_column("Name")
+            t.add_column("Features")
+            for fs in data["featuresets"]:
+                t.add_row(fs.get("name", ""), str(fs.get("feature_count", len(fs.get("features", [])))))
+            console.print(t)
+        if data.get("datasets"):
+            t = Table(title="Datasets")
+            t.add_column("Name")
+            t.add_column("Version")
+            for ds in data["datasets"]:
+                t.add_row(ds.get("name", ""), str(ds.get("version", "")))
+            console.print(t)
+        return
+
+    # single-featureset detail
+    t = Table(title=f"Featureset: {data.get('name', '?')}")
+    t.add_column("Field")
+    t.add_column("Value")
+    t.add_row("name", str(data.get("name", "")))
+    t.add_row("version", str(data.get("version", "")))
+    t.add_row("feature_count", str(data.get("feature_count", len(data.get("features", [])))))
+    console.print(t)
+
+    if data.get("features"):
+        ft = Table(title="Features")
+        ft.add_column("Name")
+        ft.add_column("dtype")
+        ft.add_column("id")
+        for f in data["features"]:
+            ft.add_row(str(f.get("name", "")), str(f.get("dtype", "")), str(f.get("id", "")))
+        console.print(ft)
+
+    if data.get("extractors"):
+        et = Table(title="Extractors")
+        et.add_column("Name")
+        et.add_column("Inputs")
+        et.add_column("Outputs")
+        et.add_column("Version")
+        for e in data["extractors"]:
+            et.add_row(
+                str(e.get("name", "")),
+                ", ".join(e.get("inputs", [])),
+                ", ".join(e.get("outputs", [])),
+                str(e.get("version", 1)),
+            )
+        console.print(et)
 
 
 def main() -> None:

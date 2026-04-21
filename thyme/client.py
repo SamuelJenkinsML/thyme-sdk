@@ -18,6 +18,13 @@ from thyme.types import schema_from_featureset
 
 _ARROW_IPC_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
 _ARROW_ACCEPT = f"{_ARROW_IPC_CONTENT_TYPE}, application/json;q=0.9"
+_QUERY_RUN_HEADER = "X-Query-Run-Id"
+
+
+def _run_id(response: httpx.Response) -> str | None:
+    """Extract the query-run id from a response, if the server set one."""
+    value = response.headers.get(_QUERY_RUN_HEADER)
+    return value or None
 
 
 def _normalize_to_polars(
@@ -104,6 +111,21 @@ class ThymeClient:
         self._http = httpx.Client(base_url=self._config.query_url, **shared)
         self._def_http = httpx.Client(base_url=self._config.api_base, **shared)
 
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Close the underlying HTTP connections."""
+        self._http.close()
+        self._def_http.close()
+
+    def __enter__(self) -> "ThymeClient":
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self.close()
+
     def query(
         self,
         featureset: type,
@@ -135,11 +157,15 @@ class ThymeClient:
         row = _features_to_row(data["features"], schema)
         df = pl.DataFrame([row], schema=schema)
 
-        return ThymeResult(df, metadata={
-            "entity_id": data.get("entity_id", entity_id),
-            "entity_type": data.get("entity_type", fs_name),
-            "mode": data.get("mode", "online"),
-        })
+        return ThymeResult(
+            df,
+            metadata={
+                "entity_id": data.get("entity_id", entity_id),
+                "entity_type": data.get("entity_type", fs_name),
+                "mode": data.get("mode", "online"),
+            },
+            query_run_id=_run_id(response),
+        )
 
     def query_batch(
         self,
@@ -180,10 +206,11 @@ class ThymeClient:
             else:
                 df = pl.DataFrame(rows, schema=schema)
 
-        return ThymeResult(df, metadata={
-            "entity_type": fs_name,
-            "mode": "batch",
-        })
+        return ThymeResult(
+            df,
+            metadata={"entity_type": fs_name, "mode": "batch"},
+            query_run_id=_run_id(response),
+        )
 
     def query_offline(
         self,
@@ -218,6 +245,7 @@ class ThymeClient:
 
         all_rows: list[dict[str, Any]] = []
         all_dfs: list[pl.DataFrame] = []
+        last_run_id: str | None = None
 
         # Process in batches
         for offset in range(0, len(entities_df), batch_size):
@@ -236,6 +264,7 @@ class ThymeClient:
                 headers={"accept": _ARROW_ACCEPT},
             )
             response.raise_for_status()
+            last_run_id = _run_id(response) or last_run_id
 
             if _is_arrow_ipc_response(response):
                 batch_df = _read_arrow_ipc(response)
@@ -265,10 +294,11 @@ class ThymeClient:
         else:
             df = pl.DataFrame(all_rows)
 
-        return ThymeResult(df, metadata={
-            "entity_type": fs_name,
-            "mode": "offline",
-        })
+        return ThymeResult(
+            df,
+            metadata={"entity_type": fs_name, "mode": "offline"},
+            query_run_id=last_run_id,
+        )
 
     def lookup(
         self,
@@ -316,11 +346,15 @@ class ThymeClient:
         else:
             df = pl.DataFrame([features])
 
-        return ThymeResult(df, metadata={
-            "entity_id": entity_id,
-            "entity_type": ds_name,
-            "mode": mode,
-        })
+        return ThymeResult(
+            df,
+            metadata={
+                "entity_id": entity_id,
+                "entity_type": ds_name,
+                "mode": mode,
+            },
+            query_run_id=_run_id(response),
+        )
 
     def inspect(
         self,

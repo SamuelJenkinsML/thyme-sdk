@@ -110,6 +110,7 @@ class Config:
     api_url: str = "http://localhost:8080/api/v1/commit"
     api_base: str = "http://localhost:8080"
     query_url: str = "http://localhost:8081"
+    frontend_url: str = ""
     api_key: str = ""
     postgres: PostgresConfig = field(default_factory=PostgresConfig)
     s3: S3Config = field(default_factory=S3Config)
@@ -147,6 +148,7 @@ class Config:
         qs = file_data.get("query_server", {})
         api_base = file_data.get("api_base") or ds.get("url") or cls.api_base
         query_url = file_data.get("query_url") or qs.get("url") or cls.query_url
+        frontend_url = file_data.get("frontend_url") or cls.frontend_url
         api_url = file_data.get("api_url", None)
         if api_url is None:
             # Derive api_url from api_base when not explicitly set
@@ -163,6 +165,7 @@ class Config:
             api_url=api_url,
             api_base=api_base,
             query_url=query_url,
+            frontend_url=frontend_url,
             api_key=file_data.get("api_key", cls.api_key),
         )
 
@@ -256,6 +259,17 @@ class Config:
         if self.api_key:
             return {"Authorization": f"Bearer {self.api_key}"}
         return {}
+
+    def query_run_url(self, run_id: str) -> str | None:
+        """Build a URL to the frontend's query-run detail page.
+
+        Returns ``None`` when ``frontend_url`` is not configured so callers
+        can distinguish "no UI available" from a bad URL.
+        """
+        if not self.frontend_url or not run_id:
+            return None
+        base = self.frontend_url.rstrip("/")
+        return f"{base}/query-runs/{run_id}"
 
     def postgres_source(self, table: str, schema: str | None = None) -> "PostgresSource":
         """Create a PostgresSource from this config's connection settings."""
@@ -383,6 +397,7 @@ def _apply_env_overrides(config: Config) -> None:
         "THYME_API_URL": ("api_url", str),
         "THYME_API_BASE": ("api_base", str),
         "THYME_QUERY_URL": ("query_url", str),
+        "THYME_FRONTEND_URL": ("frontend_url", str),
         "THYME_API_KEY": ("api_key", str),
     }
     for key, (attr, fn) in env.items():
