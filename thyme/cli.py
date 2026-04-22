@@ -571,6 +571,82 @@ def discover(
 
 
 # ---------------------------------------------------------------------------
+# Codegen: emit typecheck-only bindings from @featureset / @dataset classes.
+# Stubs are read only by type-checkers (mypy, pyright); the query runtime
+# path is unchanged.
+# ---------------------------------------------------------------------------
+
+
+codegen_app = typer.Typer(
+    help="Generate typecheck-only bindings from featureset definitions.",
+    no_args_is_help=True,
+)
+app.add_typer(codegen_app, name="codegen")
+
+
+@codegen_app.command("python")
+def codegen_python(
+    out: Path = typer.Option(..., "--out", help="Output directory for .pyi stubs"),
+    module: Optional[str] = typer.Option(
+        None, "-m", "--module", help="Module dotted path (e.g. myproject.features)"
+    ),
+    path: Optional[Path] = typer.Option(
+        None, "--path", help="Path to a Python module file containing feature definitions"
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite existing files and prune stale *.pyi"
+    ),
+) -> None:
+    """Emit .pyi stubs so ThymeClient / MockContext query methods narrow by featureset."""
+    if module is None and path is None:
+        typer.echo("Error: Provide either -m MODULE or --path FILE.", err=True)
+        raise typer.Exit(1)
+    if module is not None and path is not None:
+        typer.echo("Error: Provide either -m MODULE or --path FILE, not both.", err=True)
+        raise typer.Exit(1)
+
+    clear_registry()  # also clears featureset + source registries (dataset.py:203)
+
+    try:
+        if module is not None:
+            _import_module_by_name(module)
+        else:
+            assert path is not None
+            _import_module_by_path(path)
+    except Exception as exc:
+        typer.echo(f"Error importing module: {exc}", err=True)
+        raise typer.Exit(1)
+
+    from thyme.codegen.ir import build_ir
+    from thyme.codegen.python import emit_python_stubs
+
+    try:
+        ir = build_ir()
+    except ValueError as exc:
+        typer.echo(f"Error building codegen IR: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if not ir.featuresets and not ir.datasets:
+        source_desc = f"module '{module}'" if module else f"file {path}"
+        typer.echo(
+            f"Error: no featuresets or datasets found in {source_desc}. "
+            f"Did the module import succeed and register decorators?",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        written = emit_python_stubs(ir, out, force=force)
+    except FileExistsError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Wrote {len(written)} file(s) to {out}:")
+    for p in written:
+        typer.echo(f"  {p.relative_to(out)}")
+
+
+# ---------------------------------------------------------------------------
 # Query commands: read path from the query-server.
 # ---------------------------------------------------------------------------
 

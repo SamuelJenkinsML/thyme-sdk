@@ -6,12 +6,14 @@ pandas, Arrow, dicts, or numpy on demand via lazy imports.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import polars as pl
 
+_T = TypeVar("_T")
 
-class ThymeResult:
+
+class ThymeResult(Generic[_T]):
     """Wraps feature query results with multi-format export.
 
     Args:
