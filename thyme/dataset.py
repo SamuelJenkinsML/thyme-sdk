@@ -2,7 +2,7 @@ import inspect
 import json
 from copy import deepcopy
 from dataclasses import dataclass, fields
-from typing import Any, get_origin, get_args, Union
+from typing import Any, get_origin, get_args, Union, dataclass_transform
 
 
 class Field:
@@ -13,7 +13,7 @@ class Field:
         self.timestamp = timestamp
 
 
-def field(key: bool = False, timestamp: bool = False) -> Field:
+def field(key: bool = False, timestamp: bool = False) -> Any:
     return Field(key=key, timestamp=timestamp)
 
 
@@ -173,6 +173,7 @@ def _discover_pipelines(cls: type) -> None:
         _PIPELINE_REGISTRY[key] = pipeline_meta
 
 
+@dataclass_transform(field_specifiers=(field,))
 def dataset(index: bool = False, version: int = 1):
     """Decorator to register a class as a dataset with schema metadata."""
 
