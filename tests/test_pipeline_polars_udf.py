@@ -177,13 +177,13 @@ class TestFilterCallable:
         exec(src, namespace)
         wrapper = namespace["_thyme_polars_filter_wrapper"]
 
-        records = [
+        df = pl.DataFrame([
             {"order_id": "a", "amount": 5},
             {"order_id": "b", "amount": 20},
             {"order_id": "c", "amount": 50},
             {"order_id": "d", "amount": 8},
-        ]
-        surviving_ids = wrapper(records)
+        ])
+        surviving_ids = wrapper(df)
         assert surviving_ids == [1, 2]
 
     def test_filter_wrapper_empty_input(self):
@@ -195,7 +195,7 @@ class TestFilterCallable:
         namespace: dict = {}
         exec(src, namespace)
         wrapper = namespace["_thyme_polars_filter_wrapper"]
-        assert wrapper([]) == []
+        assert wrapper(pl.DataFrame()) == []
 
     def test_filter_wrapper_rejects_column_drop(self):
         def bad_select(df: pl.DataFrame) -> pl.DataFrame:
@@ -208,7 +208,7 @@ class TestFilterCallable:
         wrapper = namespace["_thyme_polars_filter_wrapper"]
 
         with pytest.raises(ValueError, match="__thyme_row_id"):
-            wrapper([{"amount": 5, "other": "x"}])
+            wrapper(pl.DataFrame([{"amount": 5, "other": "x"}]))
 
 
 class TestTransformWrapperBehavior:
@@ -224,26 +224,30 @@ class TestTransformWrapperBehavior:
     def test_wrapper_roundtrip_preserves_records(self):
         node = PipelineNode("Order").transform(identity)
         wrapper = self._exec_wrapper(node)
-        records = [{"a": 1, "b": "x"}, {"a": 2, "b": "y"}]
-        out = wrapper(records)
-        assert out == records
+        df = pl.DataFrame([{"a": 1, "b": "x"}, {"a": 2, "b": "y"}])
+        out = wrapper(df)
+        assert isinstance(out, pl.DataFrame)
+        assert out.to_dicts() == df.to_dicts()
 
     def test_wrapper_applies_user_transform(self):
         node = PipelineNode("Order").transform(tag_amount_band)
         wrapper = self._exec_wrapper(node)
-        records = [
+        df = pl.DataFrame([
             {"amount": 5, "user_id": "u1"},
             {"amount": 50, "user_id": "u2"},
             {"amount": 500, "user_id": "u3"},
-        ]
-        out = wrapper(records)
-        bands = [r["amount_band"] for r in out]
+        ])
+        out = wrapper(df)
+        bands = out["amount_band"].to_list()
         assert bands == ["small", "medium", "large"]
 
     def test_wrapper_empty_batch_passthrough(self):
         node = PipelineNode("Order").transform(identity)
         wrapper = self._exec_wrapper(node)
-        assert wrapper([]) == []
+        empty = pl.DataFrame()
+        out = wrapper(empty)
+        assert isinstance(out, pl.DataFrame)
+        assert out.shape == (0, 0)
 
     def test_wrapper_rejects_non_dataframe_return(self):
         def bad_transform(df: pl.DataFrame) -> pl.DataFrame:
@@ -252,4 +256,4 @@ class TestTransformWrapperBehavior:
         node = PipelineNode("Order").transform(bad_transform)
         wrapper = self._exec_wrapper(node)
         with pytest.raises(TypeError, match="must return pl.DataFrame"):
-            wrapper([{"a": 1}])
+            wrapper(pl.DataFrame([{"a": 1}]))

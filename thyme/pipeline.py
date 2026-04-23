@@ -5,46 +5,42 @@ from typing import Any, Callable, Dict, List, Optional
 from thyme.expr import Expr, PredicateExpr
 from thyme.expr._wire import proto_to_wire
 
-# Wrapper template shipped alongside user UDF source. The engine sends a JSON
-# array of records per batch to the Python worker; the worker calls this
-# entry point, which adapts list[dict] <-> pl.DataFrame <-> list[dict] so the
-# user's function can express itself in native Polars.
+# Wrapper template shipped alongside user UDF source. The engine's Python
+# worker calls this entry point with a pl.DataFrame (decoded either from the
+# JSON codec's list[dict] or zero-copy from an Arrow IPC stream depending on
+# which pool the engine started). The wrapper just dispatches to the user's
+# function and validates the return type.
 _POLARS_WRAPPER_TEMPLATE = """
 import polars as pl
 
 {user_source}
 
-def _thyme_polars_wrapper(records):
-    if not records:
-        return records
-    df = pl.DataFrame(records)
+def _thyme_polars_wrapper(df):
     result = {user_fn_name}(df)
     if not isinstance(result, pl.DataFrame):
         raise TypeError(
             "Polars UDF '{user_fn_name}' must return pl.DataFrame, got "
             + type(result).__name__
         )
-    return result.to_dicts()
+    return result
 """.strip() + "\n"
 
 _UDF_ENTRY_POINT = "_thyme_polars_wrapper"
 
 # Filter UDFs get a distinct wrapper that injects a `__thyme_row_id` column
-# into each input record, calls the user function, then returns only the
-# surviving row IDs as a JSON array of ints. The engine uses those indices to
-# retain the matching records with their partition/offset metadata intact
-# (you can't zip filter output back by position — row count changes).
+# before calling the user function, then returns only the surviving row IDs
+# as a list[int]. The engine uses those indices to retain matching records
+# with their partition/offset metadata intact (you can't zip filter output
+# back by position — row count changes).
 _POLARS_FILTER_WRAPPER_TEMPLATE = """
 import polars as pl
 
 {user_source}
 
-def _thyme_polars_filter_wrapper(records):
-    if not records:
-        return []
-    for i, r in enumerate(records):
-        r["__thyme_row_id"] = i
-    df = pl.DataFrame(records)
+def _thyme_polars_filter_wrapper(df):
+    df = df.with_row_index(name="__thyme_row_id").with_columns(
+        pl.col("__thyme_row_id").cast(pl.Int64)
+    )
     result = {user_fn_name}(df)
     if not isinstance(result, pl.DataFrame):
         raise TypeError(
