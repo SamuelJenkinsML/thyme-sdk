@@ -124,6 +124,93 @@ class TestTransformCompiles:
         assert kinds == ["filter", "transform", "aggregate"]
 
 
+class TestFilterCallable:
+    """`.filter(fn)` with a callable should emit a pycode filter op that ships
+    to the engine's Python pool. The generated wrapper injects a row-id column
+    so the engine can map surviving rows back to metadata."""
+
+    def test_filter_callable_appends_pre_op(self):
+        def drop_negative(df: pl.DataFrame) -> pl.DataFrame:
+            return df.filter(pl.col("amount") > 0)
+
+        node = PipelineNode("Order").filter(drop_negative)
+        assert len(node._pre_ops) == 1
+        op = node._pre_ops[0]
+        assert "filter" in op
+        spec = op["filter"]
+        assert "pycode" in spec
+        pc = spec["pycode"]
+        assert pc["entry_point"] == "_thyme_polars_filter_wrapper"
+        assert "def drop_negative" in pc["source_code"]
+        assert "__thyme_row_id" in pc["source_code"]
+        assert "predicate" not in spec
+
+    def test_filter_callable_chains_with_aggregate(self):
+        def keep_large(df: pl.DataFrame) -> pl.DataFrame:
+            return df.filter(pl.col("amount") > 100)
+
+        node = (
+            PipelineNode("Order")
+            .filter(keep_large)
+            .groupby("user_id")
+            .aggregate(c=Count(window="1h"))
+        )
+        ops = node.to_operators()
+        kinds = [next(iter(op.keys())) for op in ops]
+        assert kinds == ["filter", "aggregate"]
+
+    def test_filter_rejects_lambda(self):
+        with pytest.raises(TypeError, match="lambdas are not supported"):
+            PipelineNode("X").filter(lambda df: df)
+
+    def test_filter_rejects_bad_type(self):
+        with pytest.raises(TypeError, match="expects a PredicateExpr or callable"):
+            PipelineNode("X").filter(42)
+
+    def test_filter_wrapper_returns_surviving_row_ids(self):
+        def keep_big(df: pl.DataFrame) -> pl.DataFrame:
+            return df.filter(pl.col("amount") > 10)
+
+        node = PipelineNode("Order").filter(keep_big)
+        src = node._pre_ops[0]["filter"]["pycode"]["source_code"]
+        namespace: dict = {}
+        exec(src, namespace)
+        wrapper = namespace["_thyme_polars_filter_wrapper"]
+
+        records = [
+            {"order_id": "a", "amount": 5},
+            {"order_id": "b", "amount": 20},
+            {"order_id": "c", "amount": 50},
+            {"order_id": "d", "amount": 8},
+        ]
+        surviving_ids = wrapper(records)
+        assert surviving_ids == [1, 2]
+
+    def test_filter_wrapper_empty_input(self):
+        def identity(df: pl.DataFrame) -> pl.DataFrame:
+            return df
+
+        node = PipelineNode("Order").filter(identity)
+        src = node._pre_ops[0]["filter"]["pycode"]["source_code"]
+        namespace: dict = {}
+        exec(src, namespace)
+        wrapper = namespace["_thyme_polars_filter_wrapper"]
+        assert wrapper([]) == []
+
+    def test_filter_wrapper_rejects_column_drop(self):
+        def bad_select(df: pl.DataFrame) -> pl.DataFrame:
+            return df.select(["amount"])
+
+        node = PipelineNode("Order").filter(bad_select)
+        src = node._pre_ops[0]["filter"]["pycode"]["source_code"]
+        namespace: dict = {}
+        exec(src, namespace)
+        wrapper = namespace["_thyme_polars_filter_wrapper"]
+
+        with pytest.raises(ValueError, match="__thyme_row_id"):
+            wrapper([{"amount": 5, "other": "x"}])
+
+
 class TestTransformWrapperBehavior:
     """The generated wrapper is pure Python and can be exec'd inline to verify
     the list[dict] <-> pl.DataFrame adaptation without spinning up the engine."""

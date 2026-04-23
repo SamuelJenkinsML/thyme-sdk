@@ -83,15 +83,29 @@ def compile_pipeline(pipeline_meta: dict) -> dataset_pb2.Pipeline:
     for op in pipeline_meta.get("operators", []):
         if "filter" in op:
             spec = op["filter"]
-            predicate = spec["predicate"]
-            if not isinstance(predicate, expr_pb2.Predicate):
-                raise TypeError(
-                    f"filter predicate must be a Predicate proto, got {type(predicate).__name__}"
-                )
-            operators.append(dataset_pb2.Operator(
-                id="filter",
-                filter=dataset_pb2.Filter(predicate=predicate),
-            ))
+            if "pycode" in spec:
+                pc = spec["pycode"]
+                operators.append(dataset_pb2.Operator(
+                    id=f"filter:{pc.get('entry_point', '')}",
+                    filter=dataset_pb2.Filter(
+                        pycode=pycode_pb2.PyCode(
+                            source_code=pc["source_code"],
+                            entry_point=pc["entry_point"],
+                            generated_code=pc["source_code"],
+                            imports="",
+                        ),
+                    ),
+                ))
+            else:
+                predicate = spec["predicate"]
+                if not isinstance(predicate, expr_pb2.Predicate):
+                    raise TypeError(
+                        f"filter predicate must be a Predicate proto, got {type(predicate).__name__}"
+                    )
+                operators.append(dataset_pb2.Operator(
+                    id="filter",
+                    filter=dataset_pb2.Filter(predicate=predicate),
+                ))
         elif "assign" in op:
             spec = op["assign"]
             value = spec["value"]

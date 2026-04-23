@@ -29,19 +29,52 @@ def _thyme_polars_wrapper(records):
 
 _UDF_ENTRY_POINT = "_thyme_polars_wrapper"
 
+# Filter UDFs get a distinct wrapper that injects a `__thyme_row_id` column
+# into each input record, calls the user function, then returns only the
+# surviving row IDs as a JSON array of ints. The engine uses those indices to
+# retain the matching records with their partition/offset metadata intact
+# (you can't zip filter output back by position — row count changes).
+_POLARS_FILTER_WRAPPER_TEMPLATE = """
+import polars as pl
 
-def _capture_udf_source(fn: Callable) -> str:
+{user_source}
+
+def _thyme_polars_filter_wrapper(records):
+    if not records:
+        return []
+    for i, r in enumerate(records):
+        r["__thyme_row_id"] = i
+    df = pl.DataFrame(records)
+    result = {user_fn_name}(df)
+    if not isinstance(result, pl.DataFrame):
+        raise TypeError(
+            "Polars filter UDF '{user_fn_name}' must return pl.DataFrame, got "
+            + type(result).__name__
+        )
+    if "__thyme_row_id" not in result.columns:
+        raise ValueError(
+            "Polars filter UDF '{user_fn_name}' dropped the __thyme_row_id column. "
+            "Use .filter(predicate) or similar row-preserving ops — don't .select() "
+            "away internal columns."
+        )
+    return result["__thyme_row_id"].to_list()
+""".strip() + "\n"
+
+_FILTER_UDF_ENTRY_POINT = "_thyme_polars_filter_wrapper"
+
+
+def _capture_udf_source(fn: Callable, kind: str = "transform") -> str:
     """Capture and dedent the user function's source. Raises TypeError on
     constructs we can't ship to the engine (lambdas, closures)."""
     name = getattr(fn, "__name__", None)
     if not name or name == "<lambda>":
         raise TypeError(
-            ".transform() requires a named top-level function "
+            f".{kind}() requires a named top-level function "
             "(lambdas are not supported because their source cannot be captured)"
         )
     if getattr(fn, "__closure__", None):
         raise TypeError(
-            f".transform() rejects closures over non-global state "
+            f".{kind}() rejects closures over non-global state "
             f"(function '{name}' has captured variables); define all "
             "dependencies as module-level constants or function arguments"
         )
@@ -49,7 +82,7 @@ def _capture_udf_source(fn: Callable) -> str:
         raw = inspect.getsource(fn)
     except (OSError, TypeError) as e:
         raise TypeError(
-            f".transform() could not capture source for '{name}': {e}. "
+            f".{kind}() could not capture source for '{name}': {e}. "
             "UDFs must be defined at import-time in a real source file."
         )
     return textwrap.dedent(raw)
@@ -58,12 +91,24 @@ def _capture_udf_source(fn: Callable) -> str:
 def _build_udf_pycode(fn: Callable) -> Dict[str, str]:
     """Generate the pycode payload shipped to the engine: user source plus a
     wrapper that adapts list[dict] <-> pl.DataFrame."""
-    user_source = _capture_udf_source(fn)
+    user_source = _capture_udf_source(fn, kind="transform")
     source_code = _POLARS_WRAPPER_TEMPLATE.format(
         user_source=user_source,
         user_fn_name=fn.__name__,
     )
     return {"source_code": source_code, "entry_point": _UDF_ENTRY_POINT}
+
+
+def _build_filter_pycode(fn: Callable) -> Dict[str, str]:
+    """Generate the pycode payload for a filter UDF. The wrapper injects a
+    row-id column, so the engine can map surviving rows back to their
+    original (partition, offset) metadata."""
+    user_source = _capture_udf_source(fn, kind="filter")
+    source_code = _POLARS_FILTER_WRAPPER_TEMPLATE.format(
+        user_source=user_source,
+        user_fn_name=fn.__name__,
+    )
+    return {"source_code": source_code, "entry_point": _FILTER_UDF_ENTRY_POINT}
 
 
 class AggOp:
@@ -151,23 +196,38 @@ class PipelineNode:
         node._pre_ops = list(self._pre_ops)
         return node
 
-    def filter(self, predicate: PredicateExpr) -> "PipelineNode":
-        """Drop records that do not satisfy the predicate (evaluated in the engine)."""
-        if not isinstance(predicate, PredicateExpr):
-            raise TypeError(
-                f"filter() expects a PredicateExpr from thyme.expr, got {type(predicate).__name__}"
-            )
-        node = self._clone()
-        # Store the raw proto for MockContext evaluation and also a wire-shaped
-        # dict for JSON transmission to the definition service.
-        proto = predicate.to_proto()
-        node._pre_ops.append({
-            "filter": {
-                "predicate": proto,
-                "_wire": {"predicate": proto_to_wire(proto)},
-            },
-        })
-        return node
+    def filter(self, predicate_or_fn) -> "PipelineNode":
+        """Drop records. Two forms:
+        - ``.filter(PredicateExpr)`` — closed-form predicate, evaluated per-record in Rust.
+        - ``.filter(fn)`` — Polars UDF taking and returning a ``pl.DataFrame``.
+          The engine sends the batch as a JSON array, the SDK's wrapper injects
+          a ``__thyme_row_id`` column so the user's function can filter using
+          any Polars operation while preserving the column; only surviving row
+          IDs are returned so the engine can retain records with metadata intact.
+        """
+        if isinstance(predicate_or_fn, PredicateExpr):
+            node = self._clone()
+            proto = predicate_or_fn.to_proto()
+            node._pre_ops.append({
+                "filter": {
+                    "predicate": proto,
+                    "_wire": {"predicate": proto_to_wire(proto)},
+                },
+            })
+            return node
+        if callable(predicate_or_fn):
+            pycode = _build_filter_pycode(predicate_or_fn)
+            node = self._clone()
+            node._pre_ops.append({
+                "filter": {
+                    "pycode": pycode,
+                    "_wire": {"pycode": pycode},
+                },
+            })
+            return node
+        raise TypeError(
+            f"filter() expects a PredicateExpr or callable, got {type(predicate_or_fn).__name__}"
+        )
 
     def transform(
         self,
