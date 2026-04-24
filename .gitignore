@@ -27,4 +27,4 @@ htmlcov/
 test-results.xml
 
 # Duplicate protoc output
-thyme/gen/thyme/
+thyme/gen/thyme/.claude/

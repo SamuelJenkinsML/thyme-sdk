@@ -56,6 +56,24 @@ class FeaturesetDef:
     extractors: List[ExtractorDef]
 
 
+def _wire_operator(op: dict) -> dict:
+    """Produce the JSON-serialisable wire form of an operator dict.
+
+    Pipeline operators may carry protobuf messages (Predicate/Derivation) that
+    are not directly JSON-encodable. filter/assign ops ship a ``_wire`` key
+    holding the pre-converted prost-serde-shaped body; transform ops carry
+    pycode (source + entry_point) that the engine reads directly. Other ops
+    pass through.
+    """
+    if "filter" in op and "_wire" in op["filter"]:
+        return {"filter": op["filter"]["_wire"]}
+    if "assign" in op and "_wire" in op["assign"]:
+        return {"assign": op["assign"]["_wire"]}
+    if "transform" in op and "_wire" in op["transform"]:
+        return {"transform": op["transform"]["_wire"]}
+    return op
+
+
 def _to_pipeline(p: dict) -> PipelineDef:
     pycode = None
     if p.get("source_code"):
@@ -69,7 +87,7 @@ def _to_pipeline(p: dict) -> PipelineDef:
         version=p.get("version", 1),
         input_datasets=p.get("input_datasets", []),
         output_dataset=p.get("output_dataset", ""),
-        operators=p.get("operators", []),
+        operators=[_wire_operator(op) for op in p.get("operators", [])],
         pycode=pycode,
     )
 
