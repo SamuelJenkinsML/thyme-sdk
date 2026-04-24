@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from thyme.testing._expectations import ExpectationViolation, check_expectations
+from thyme.testing._expr_eval import apply_pre_ops
 from thyme.testing._window import parse_window_duration
 
 
@@ -178,6 +179,12 @@ class MockContext:
             if not operators:
                 continue
 
+            # Apply pre-aggregate ops (filter, assign) in declaration order
+            # before any aggregation step sees the events. Mirrors the Rust
+            # engine's process_record path.
+            pre_ops = [op for op in operators if "filter" in op or "assign" in op]
+            processed_events = apply_pre_ops(events, pre_ops) if pre_ops else events
+
             for op in operators:
                 agg_op = op.get("aggregate")
                 if agg_op is None:
@@ -188,7 +195,7 @@ class MockContext:
                 output_dataset = pipe_meta["output_dataset"]
                 pipe_name = pipe_meta["name"]
 
-                for event in events:
+                for event in processed_events:
                     # Build group key string
                     group_key_str = ":".join(str(event.get(k, "")) for k in group_keys)
 
