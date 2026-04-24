@@ -1,5 +1,6 @@
 from thyme import schema_pb2 as _schema_pb2
 from thyme import pycode_pb2 as _pycode_pb2
+from thyme import expr_pb2 as _expr_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -59,20 +60,22 @@ class Pipeline(_message.Message):
     def __init__(self, name: _Optional[str] = ..., version: _Optional[int] = ..., input_datasets: _Optional[_Iterable[str]] = ..., output_dataset: _Optional[str] = ..., operators: _Optional[_Iterable[_Union[Operator, _Mapping]]] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ...) -> None: ...
 
 class Operator(_message.Message):
-    __slots__ = ("id", "aggregate", "filter", "transform", "group_by", "temporal_join")
+    __slots__ = ("id", "aggregate", "filter", "transform", "group_by", "temporal_join", "assign")
     ID_FIELD_NUMBER: _ClassVar[int]
     AGGREGATE_FIELD_NUMBER: _ClassVar[int]
     FILTER_FIELD_NUMBER: _ClassVar[int]
     TRANSFORM_FIELD_NUMBER: _ClassVar[int]
     GROUP_BY_FIELD_NUMBER: _ClassVar[int]
     TEMPORAL_JOIN_FIELD_NUMBER: _ClassVar[int]
+    ASSIGN_FIELD_NUMBER: _ClassVar[int]
     id: str
     aggregate: Aggregate
     filter: Filter
     transform: Transform
     group_by: GroupBy
     temporal_join: TemporalJoin
-    def __init__(self, id: _Optional[str] = ..., aggregate: _Optional[_Union[Aggregate, _Mapping]] = ..., filter: _Optional[_Union[Filter, _Mapping]] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ..., group_by: _Optional[_Union[GroupBy, _Mapping]] = ..., temporal_join: _Optional[_Union[TemporalJoin, _Mapping]] = ...) -> None: ...
+    assign: Assign
+    def __init__(self, id: _Optional[str] = ..., aggregate: _Optional[_Union[Aggregate, _Mapping]] = ..., filter: _Optional[_Union[Filter, _Mapping]] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ..., group_by: _Optional[_Union[GroupBy, _Mapping]] = ..., temporal_join: _Optional[_Union[TemporalJoin, _Mapping]] = ..., assign: _Optional[_Union[Assign, _Mapping]] = ...) -> None: ...
 
 class Aggregate(_message.Message):
     __slots__ = ("operand_id", "keys", "specs")
@@ -97,12 +100,14 @@ class AggSpec(_message.Message):
     def __init__(self, agg_type: _Optional[str] = ..., field: _Optional[str] = ..., window: _Optional[str] = ..., output_field: _Optional[str] = ...) -> None: ...
 
 class Filter(_message.Message):
-    __slots__ = ("operand_id", "pycode")
+    __slots__ = ("operand_id", "pycode", "predicate")
     OPERAND_ID_FIELD_NUMBER: _ClassVar[int]
     PYCODE_FIELD_NUMBER: _ClassVar[int]
+    PREDICATE_FIELD_NUMBER: _ClassVar[int]
     operand_id: str
     pycode: _pycode_pb2.PyCode
-    def __init__(self, operand_id: _Optional[str] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ...) -> None: ...
+    predicate: _expr_pb2.Predicate
+    def __init__(self, operand_id: _Optional[str] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., predicate: _Optional[_Union[_expr_pb2.Predicate, _Mapping]] = ...) -> None: ...
 
 class Transform(_message.Message):
     __slots__ = ("operand_id", "pycode")
@@ -111,6 +116,18 @@ class Transform(_message.Message):
     operand_id: str
     pycode: _pycode_pb2.PyCode
     def __init__(self, operand_id: _Optional[str] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ...) -> None: ...
+
+class Assign(_message.Message):
+    __slots__ = ("operand_id", "column", "value", "dtype")
+    OPERAND_ID_FIELD_NUMBER: _ClassVar[int]
+    COLUMN_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    DTYPE_FIELD_NUMBER: _ClassVar[int]
+    operand_id: str
+    column: str
+    value: _expr_pb2.Derivation
+    dtype: _schema_pb2.DataType
+    def __init__(self, operand_id: _Optional[str] = ..., column: _Optional[str] = ..., value: _Optional[_Union[_expr_pb2.Derivation, _Mapping]] = ..., dtype: _Optional[_Union[_schema_pb2.DataType, _Mapping]] = ...) -> None: ...
 
 class GroupBy(_message.Message):
     __slots__ = ("operand_id", "keys")

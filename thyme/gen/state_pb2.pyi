@@ -7,7 +7,7 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class StateValue(_message.Message):
-    __slots__ = ("features", "dimensions", "timestamp", "op", "before", "after")
+    __slots__ = ("features", "dimensions", "timestamp", "op", "before", "after", "sketches")
     class FeaturesEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -36,19 +36,44 @@ class StateValue(_message.Message):
         key: str
         value: float
         def __init__(self, key: _Optional[str] = ..., value: _Optional[float] = ...) -> None: ...
+    class SketchesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: bytes
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[bytes] = ...) -> None: ...
     FEATURES_FIELD_NUMBER: _ClassVar[int]
     DIMENSIONS_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     OP_FIELD_NUMBER: _ClassVar[int]
     BEFORE_FIELD_NUMBER: _ClassVar[int]
     AFTER_FIELD_NUMBER: _ClassVar[int]
+    SKETCHES_FIELD_NUMBER: _ClassVar[int]
     features: _containers.ScalarMap[str, float]
     dimensions: _containers.ScalarMap[str, str]
     timestamp: str
     op: str
     before: _containers.ScalarMap[str, float]
     after: _containers.ScalarMap[str, float]
-    def __init__(self, features: _Optional[_Mapping[str, float]] = ..., dimensions: _Optional[_Mapping[str, str]] = ..., timestamp: _Optional[str] = ..., op: _Optional[str] = ..., before: _Optional[_Mapping[str, float]] = ..., after: _Optional[_Mapping[str, float]] = ...) -> None: ...
+    sketches: _containers.ScalarMap[str, bytes]
+    def __init__(self, features: _Optional[_Mapping[str, float]] = ..., dimensions: _Optional[_Mapping[str, str]] = ..., timestamp: _Optional[str] = ..., op: _Optional[str] = ..., before: _Optional[_Mapping[str, float]] = ..., after: _Optional[_Mapping[str, float]] = ..., sketches: _Optional[_Mapping[str, bytes]] = ...) -> None: ...
+
+class TDigestCentroid(_message.Message):
+    __slots__ = ("mean", "weight")
+    MEAN_FIELD_NUMBER: _ClassVar[int]
+    WEIGHT_FIELD_NUMBER: _ClassVar[int]
+    mean: float
+    weight: float
+    def __init__(self, mean: _Optional[float] = ..., weight: _Optional[float] = ...) -> None: ...
+
+class TDigestTile(_message.Message):
+    __slots__ = ("centroids", "total_weight")
+    CENTROIDS_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_WEIGHT_FIELD_NUMBER: _ClassVar[int]
+    centroids: _containers.RepeatedCompositeFieldContainer[TDigestCentroid]
+    total_weight: float
+    def __init__(self, centroids: _Optional[_Iterable[_Union[TDigestCentroid, _Mapping]]] = ..., total_weight: _Optional[float] = ...) -> None: ...
 
 class AccumulatorValue(_message.Message):
     __slots__ = ("sum", "count")

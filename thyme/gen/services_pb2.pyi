@@ -69,3 +69,37 @@ class QueryResponse(_message.Message):
     features: _containers.ScalarMap[str, str]
     mode: str
     def __init__(self, entity_type: _Optional[str] = ..., entity_id: _Optional[str] = ..., features: _Optional[_Mapping[str, str]] = ..., mode: _Optional[str] = ...) -> None: ...
+
+class QueryRun(_message.Message):
+    __slots__ = ("id", "featureset", "entity_ids", "requested_timestamp", "kind", "row_count", "hit_count", "latency_ms", "api_key_fingerprint", "error", "created_at")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    FEATURESET_FIELD_NUMBER: _ClassVar[int]
+    ENTITY_IDS_FIELD_NUMBER: _ClassVar[int]
+    REQUESTED_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    ROW_COUNT_FIELD_NUMBER: _ClassVar[int]
+    HIT_COUNT_FIELD_NUMBER: _ClassVar[int]
+    LATENCY_MS_FIELD_NUMBER: _ClassVar[int]
+    API_KEY_FINGERPRINT_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    featureset: str
+    entity_ids: _containers.RepeatedScalarFieldContainer[str]
+    requested_timestamp: str
+    kind: str
+    row_count: int
+    hit_count: int
+    latency_ms: int
+    api_key_fingerprint: str
+    error: str
+    created_at: str
+    def __init__(self, id: _Optional[str] = ..., featureset: _Optional[str] = ..., entity_ids: _Optional[_Iterable[str]] = ..., requested_timestamp: _Optional[str] = ..., kind: _Optional[str] = ..., row_count: _Optional[int] = ..., hit_count: _Optional[int] = ..., latency_ms: _Optional[int] = ..., api_key_fingerprint: _Optional[str] = ..., error: _Optional[str] = ..., created_at: _Optional[str] = ...) -> None: ...
+
+class ListQueryRunsResponse(_message.Message):
+    __slots__ = ("runs", "next_cursor")
+    RUNS_FIELD_NUMBER: _ClassVar[int]
+    NEXT_CURSOR_FIELD_NUMBER: _ClassVar[int]
+    runs: _containers.RepeatedCompositeFieldContainer[QueryRun]
+    next_cursor: str
+    def __init__(self, runs: _Optional[_Iterable[_Union[QueryRun, _Mapping]]] = ..., next_cursor: _Optional[str] = ...) -> None: ...

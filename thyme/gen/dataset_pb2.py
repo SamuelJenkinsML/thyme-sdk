@@ -24,33 +24,36 @@ _sym_db = _symbol_database.Default()
 
 from thyme.gen import schema_pb2 as thyme_dot_schema__pb2
 from thyme.gen import pycode_pb2 as thyme_dot_pycode__pb2
+from thyme.gen import expr_pb2 as thyme_dot_expr__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13thyme/dataset.proto\x12\x05thyme\x1a\x12thyme/schema.proto\x1a\x12thyme/pycode.proto\"\xa3\x01\n\x07\x44\x61taset\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\x05\x12\x1f\n\x06schema\x18\x03 \x01(\x0b\x32\x0f.thyme.DSSchema\x12\x0f\n\x07indexed\x18\x04 \x01(\x08\x12\x1d\n\x06pycode\x18\x05 \x01(\x0b\x32\r.thyme.PyCode\x12(\n\x0c\x65xpectations\x18\x06 \x03(\x0b\x32\x12.thyme.Expectation\"\xbd\x01\n\x0b\x45xpectation\x12\x0c\n\x04type\x18\x01 \x01(\t\x12\x0e\n\x06\x63olumn\x18\x02 \x01(\t\x12\x0e\n\x06mostly\x18\x03 \x01(\x01\x12\x16\n\tmin_value\x18\x04 \x01(\x01H\x00\x88\x01\x01\x12\x16\n\tmax_value\x18\x05 \x01(\x01H\x01\x88\x01\x01\x12\x0e\n\x06values\x18\x06 \x03(\t\x12\x16\n\ttype_name\x18\x07 \x01(\tH\x02\x88\x01\x01\x42\x0c\n\n_min_valueB\x0c\n\n_max_valueB\x0c\n\n_type_name\"\x9c\x01\n\x08Pipeline\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\x05\x12\x16\n\x0einput_datasets\x18\x03 \x03(\t\x12\x16\n\x0eoutput_dataset\x18\x04 \x01(\t\x12\"\n\toperators\x18\x05 \x03(\x0b\x32\x0f.thyme.Operator\x12\x1d\n\x06pycode\x18\x06 \x01(\x0b\x32\r.thyme.PyCode\"\xdd\x01\n\x08Operator\x12\n\n\x02id\x18\x01 \x01(\t\x12%\n\taggregate\x18\x02 \x01(\x0b\x32\x10.thyme.AggregateH\x00\x12\x1f\n\x06\x66ilter\x18\x03 \x01(\x0b\x32\r.thyme.FilterH\x00\x12%\n\ttransform\x18\x04 \x01(\x0b\x32\x10.thyme.TransformH\x00\x12\"\n\x08group_by\x18\x05 \x01(\x0b\x32\x0e.thyme.GroupByH\x00\x12,\n\rtemporal_join\x18\x06 \x01(\x0b\x32\x13.thyme.TemporalJoinH\x00\x42\x04\n\x02op\"L\n\tAggregate\x12\x12\n\noperand_id\x18\x01 \x01(\t\x12\x0c\n\x04keys\x18\x02 \x03(\t\x12\x1d\n\x05specs\x18\x03 \x03(\x0b\x32\x0e.thyme.AggSpec\"P\n\x07\x41ggSpec\x12\x10\n\x08\x61gg_type\x18\x01 \x01(\t\x12\r\n\x05\x66ield\x18\x02 \x01(\t\x12\x0e\n\x06window\x18\x03 \x01(\t\x12\x14\n\x0coutput_field\x18\x04 \x01(\t\";\n\x06\x46ilter\x12\x12\n\noperand_id\x18\x01 \x01(\t\x12\x1d\n\x06pycode\x18\x02 \x01(\x0b\x32\r.thyme.PyCode\">\n\tTransform\x12\x12\n\noperand_id\x18\x01 \x01(\t\x12\x1d\n\x06pycode\x18\x02 \x01(\x0b\x32\r.thyme.PyCode\"+\n\x07GroupBy\x12\x12\n\noperand_id\x18\x01 \x01(\t\x12\x0c\n\x04keys\x18\x02 \x03(\t\"m\n\x0cTemporalJoin\x12\x15\n\rright_dataset\x18\x01 \x01(\t\x12\x16\n\x0eleft_key_field\x18\x02 \x01(\t\x12\x17\n\x0fright_key_field\x18\x03 \x01(\t\x12\x15\n\rselect_fields\x18\x04 \x03(\tb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13thyme/dataset.proto\x12\x05thyme\x1a\x12thyme/schema.proto\x1a\x12thyme/pycode.proto\x1a\x10thyme/expr.proto\"\xa3\x01\n\x07\x44\x61taset\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\x05\x12\x1f\n\x06schema\x18\x03 \x01(\x0b\x32\x0f.thyme.DSSchema\x12\x0f\n\x07indexed\x18\x04 \x01(\x08\x12\x1d\n\x06pycode\x18\x05 \x01(\x0b\x32\r.thyme.PyCode\x12(\n\x0c\x65xpectations\x18\x06 \x03(\x0b\x32\x12.thyme.Expectation\"\xbd\x01\n\x0b\x45xpectation\x12\x0c\n\x04type\x18\x01 \x01(\t\x12\x0e\n\x06\x63olumn\x18\x02 \x01(\t\x12\x0e\n\x06mostly\x18\x03 \x01(\x01\x12\x16\n\tmin_value\x18\x04 \x01(\x01H\x00\x88\x01\x01\x12\x16\n\tmax_value\x18\x05 \x01(\x01H\x01\x88\x01\x01\x12\x0e\n\x06values\x18\x06 \x03(\t\x12\x16\n\ttype_name\x18\x07 \x01(\tH\x02\x88\x01\x01\x42\x0c\n\n_min_valueB\x0c\n\n_max_valueB\x0c\n\n_type_name\"\x9c\x01\n\x08Pipeline\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0f\n\x07version\x18\x02 \x01(\x05\x12\x16\n\x0einput_datasets\x18\x03 \x03(\t\x12\x16\n\x0eoutput_dataset\x18\x04 \x01(\t\x12\"\n\toperators\x18\x05 \x03(\x0b\x32\x0f.thyme.Operator\x12\x1d\n\x06pycode\x18\x06 \x01(\x0b\x32\r.thyme.PyCode\"\xfe\x01\n\x08Operator\x12\n\n\x02id\x18\x01 \x01(\t\x12%\n\taggregate\x18\x02 \x01(\x0b\x32\x10.thyme.AggregateH\x00\x12\x1f\n\x06\x66ilter\x18\x03 \x01(\x0b\x32\r.thyme.FilterH\x00\x12%\n\ttransform\x18\x04 \x01(\x0b\x32\x10.thyme.TransformH\x00\x12\"\n\x08group_by\x18\x05 \x01(\x0b\x32\x0e.thyme.GroupByH\x00\x12,\n\rtemporal_join\x18\x06 \x01(\x0b\x32\x13.thyme.TemporalJoinH\x00\x12\x1f\n\x06\x61ssign\x18\x07 \x01(\x0b\x32\r.thyme.AssignH\x00\x42\x04\n\x02op\"L\n\tAggregate\x12\x12\n\noperand_id\x18\x01 \x01(\t\x12\x0c\n\x04keys\x18\x02 \x03(\t\x12\x1d\n\x05specs\x18\x03 \x03(\x0b\x32\x0e.thyme.AggSpec\"P\n\x07\x41ggSpec\x12\x10\n\x08\x61gg_type\x18\x01 \x01(\t\x12\r\n\x05\x66ield\x18\x02 \x01(\t\x12\x0e\n\x06window\x18\x03 \x01(\t\x12\x14\n\x0coutput_field\x18\x04 \x01(\t\"s\n\x06\x46ilter\x12\x12\n\noperand_id\x18\x01 \x01(\t\x12\x1d\n\x06pycode\x18\x02 \x01(\x0b\x32\r.thyme.PyCode\x12(\n\tpredicate\x18\x03 \x01(\x0b\x32\x10.thyme.PredicateH\x00\x88\x01\x01\x42\x0c\n\n_predicate\">\n\tTransform\x12\x12\n\noperand_id\x18\x01 \x01(\t\x12\x1d\n\x06pycode\x18\x02 \x01(\x0b\x32\r.thyme.PyCode\"n\n\x06\x41ssign\x12\x12\n\noperand_id\x18\x01 \x01(\t\x12\x0e\n\x06\x63olumn\x18\x02 \x01(\t\x12 \n\x05value\x18\x03 \x01(\x0b\x32\x11.thyme.Derivation\x12\x1e\n\x05\x64type\x18\x04 \x01(\x0b\x32\x0f.thyme.DataType\"+\n\x07GroupBy\x12\x12\n\noperand_id\x18\x01 \x01(\t\x12\x0c\n\x04keys\x18\x02 \x03(\t\"m\n\x0cTemporalJoin\x12\x15\n\rright_dataset\x18\x01 \x01(\t\x12\x16\n\x0eleft_key_field\x18\x02 \x01(\t\x12\x17\n\x0fright_key_field\x18\x03 \x01(\t\x12\x15\n\rselect_fields\x18\x04 \x03(\tb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'thyme.dataset_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DATASET']._serialized_start=71
-  _globals['_DATASET']._serialized_end=234
-  _globals['_EXPECTATION']._serialized_start=237
-  _globals['_EXPECTATION']._serialized_end=426
-  _globals['_PIPELINE']._serialized_start=429
-  _globals['_PIPELINE']._serialized_end=585
-  _globals['_OPERATOR']._serialized_start=588
-  _globals['_OPERATOR']._serialized_end=809
-  _globals['_AGGREGATE']._serialized_start=811
-  _globals['_AGGREGATE']._serialized_end=887
-  _globals['_AGGSPEC']._serialized_start=889
-  _globals['_AGGSPEC']._serialized_end=969
-  _globals['_FILTER']._serialized_start=971
-  _globals['_FILTER']._serialized_end=1030
-  _globals['_TRANSFORM']._serialized_start=1032
-  _globals['_TRANSFORM']._serialized_end=1094
-  _globals['_GROUPBY']._serialized_start=1096
-  _globals['_GROUPBY']._serialized_end=1139
-  _globals['_TEMPORALJOIN']._serialized_start=1141
-  _globals['_TEMPORALJOIN']._serialized_end=1250
+  _globals['_DATASET']._serialized_start=89
+  _globals['_DATASET']._serialized_end=252
+  _globals['_EXPECTATION']._serialized_start=255
+  _globals['_EXPECTATION']._serialized_end=444
+  _globals['_PIPELINE']._serialized_start=447
+  _globals['_PIPELINE']._serialized_end=603
+  _globals['_OPERATOR']._serialized_start=606
+  _globals['_OPERATOR']._serialized_end=860
+  _globals['_AGGREGATE']._serialized_start=862
+  _globals['_AGGREGATE']._serialized_end=938
+  _globals['_AGGSPEC']._serialized_start=940
+  _globals['_AGGSPEC']._serialized_end=1020
+  _globals['_FILTER']._serialized_start=1022
+  _globals['_FILTER']._serialized_end=1137
+  _globals['_TRANSFORM']._serialized_start=1139
+  _globals['_TRANSFORM']._serialized_end=1201
+  _globals['_ASSIGN']._serialized_start=1203
+  _globals['_ASSIGN']._serialized_end=1313
+  _globals['_GROUPBY']._serialized_start=1315
+  _globals['_GROUPBY']._serialized_end=1358
+  _globals['_TEMPORALJOIN']._serialized_start=1360
+  _globals['_TEMPORALJOIN']._serialized_end=1469
 # @@protoc_insertion_point(module_scope)
