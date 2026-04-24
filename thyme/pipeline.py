@@ -110,9 +110,21 @@ def _build_filter_pycode(fn: Callable) -> Dict[str, str]:
 class AggOp:
     """Base class for aggregation operators."""
 
-    def __init__(self, of: str = "", window: str = ""):
+    def __init__(
+        self,
+        of: str = "",
+        window: str = "",
+        *,
+        where: Optional[PredicateExpr] = None,
+    ):
+        if where is not None and not isinstance(where, PredicateExpr):
+            raise TypeError(
+                f"where= must be a PredicateExpr (use col(...) == ..., etc.), "
+                f"got {type(where).__name__}"
+            )
         self.of = of
         self.window = window
+        self.where = where
 
 
 class Avg(AggOp):
@@ -163,8 +175,15 @@ class ApproxPercentile(AggOp):
     rank (0.0 to 1.0) of the latest event value within the distribution.
     """
 
-    def __init__(self, of: str = "", window: str = "", precision: int = 100):
-        super().__init__(of=of, window=window)
+    def __init__(
+        self,
+        of: str = "",
+        window: str = "",
+        precision: int = 100,
+        *,
+        where: Optional[PredicateExpr] = None,
+    ):
+        super().__init__(of=of, window=window, where=where)
         self.precision = precision
 
     @property
@@ -312,6 +331,8 @@ class PipelineNode:
             }
             if hasattr(op, "precision"):
                 spec["precision"] = op.precision
+            if op.where is not None:
+                spec["predicate"] = op.where.to_proto()
             node._agg_specs.append(spec)
         return node
 

@@ -158,12 +158,21 @@ def compile_pipeline(pipeline_meta: dict) -> dataset_pb2.Pipeline:
             agg = op["aggregate"]
             specs = []
             for s in agg.get("specs", []):
-                specs.append(dataset_pb2.AggSpec(
+                agg_spec = dataset_pb2.AggSpec(
                     agg_type=s["type"],
                     field=s["field"],
                     window=s["window"],
                     output_field=s["output_field"],
-                ))
+                )
+                predicate = s.get("predicate")
+                if predicate is not None:
+                    if not isinstance(predicate, expr_pb2.Predicate):
+                        raise TypeError(
+                            f"aggregate predicate must be a Predicate proto, "
+                            f"got {type(predicate).__name__}"
+                        )
+                    agg_spec.predicate.CopyFrom(predicate)
+                specs.append(agg_spec)
             operators.append(dataset_pb2.Operator(
                 id="aggregate",
                 aggregate=dataset_pb2.Aggregate(

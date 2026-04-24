@@ -88,16 +88,18 @@ class Aggregate(_message.Message):
     def __init__(self, operand_id: _Optional[str] = ..., keys: _Optional[_Iterable[str]] = ..., specs: _Optional[_Iterable[_Union[AggSpec, _Mapping]]] = ...) -> None: ...
 
 class AggSpec(_message.Message):
-    __slots__ = ("agg_type", "field", "window", "output_field")
+    __slots__ = ("agg_type", "field", "window", "output_field", "predicate")
     AGG_TYPE_FIELD_NUMBER: _ClassVar[int]
     FIELD_FIELD_NUMBER: _ClassVar[int]
     WINDOW_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_FIELD_FIELD_NUMBER: _ClassVar[int]
+    PREDICATE_FIELD_NUMBER: _ClassVar[int]
     agg_type: str
     field: str
     window: str
     output_field: str
-    def __init__(self, agg_type: _Optional[str] = ..., field: _Optional[str] = ..., window: _Optional[str] = ..., output_field: _Optional[str] = ...) -> None: ...
+    predicate: _expr_pb2.Predicate
+    def __init__(self, agg_type: _Optional[str] = ..., field: _Optional[str] = ..., window: _Optional[str] = ..., output_field: _Optional[str] = ..., predicate: _Optional[_Union[_expr_pb2.Predicate, _Mapping]] = ...) -> None: ...
 
 class Filter(_message.Message):
     __slots__ = ("operand_id", "pycode", "predicate")
