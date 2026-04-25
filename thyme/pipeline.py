@@ -332,7 +332,13 @@ class PipelineNode:
             if hasattr(op, "precision"):
                 spec["precision"] = op.precision
             if op.where is not None:
-                spec["predicate"] = op.where.to_proto()
+                # Store both the proto (for compile_commit_request → binary
+                # protobuf POST) and the wire-form dict (for json.dumps of
+                # the commit payload), mirroring how filter/assign carry
+                # `_wire` alongside the proto object.
+                proto = op.where.to_proto()
+                spec["predicate"] = proto
+                spec["_wire_predicate"] = proto_to_wire(proto)
             node._agg_specs.append(spec)
         return node
 

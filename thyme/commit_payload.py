@@ -62,8 +62,9 @@ def _wire_operator(op: dict) -> dict:
     Pipeline operators may carry protobuf messages (Predicate/Derivation) that
     are not directly JSON-encodable. filter/assign ops ship a ``_wire`` key
     holding the pre-converted prost-serde-shaped body; transform ops carry
-    pycode (source + entry_point) that the engine reads directly. Other ops
-    pass through.
+    pycode (source + entry_point) that the engine reads directly. Aggregate
+    ops may carry a per-spec ``_wire_predicate`` (TH-091) — if present we
+    swap it into ``predicate`` so the spec is JSON-encodable.
     """
     if "filter" in op and "_wire" in op["filter"]:
         return {"filter": op["filter"]["_wire"]}
@@ -71,6 +72,19 @@ def _wire_operator(op: dict) -> dict:
         return {"assign": op["assign"]["_wire"]}
     if "transform" in op and "_wire" in op["transform"]:
         return {"transform": op["transform"]["_wire"]}
+    if "aggregate" in op:
+        agg = op["aggregate"]
+        specs = agg.get("specs", [])
+        wire_specs = []
+        for spec in specs:
+            wire_spec = {
+                k: v for k, v in spec.items()
+                if k not in ("predicate", "_wire_predicate")
+            }
+            if "_wire_predicate" in spec:
+                wire_spec["predicate"] = spec["_wire_predicate"]
+            wire_specs.append(wire_spec)
+        return {"aggregate": {**agg, "specs": wire_specs}}
     return op
 
 
