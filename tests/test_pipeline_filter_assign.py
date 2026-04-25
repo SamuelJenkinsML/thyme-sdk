@@ -6,7 +6,7 @@ import pytest
 
 from thyme.compiler import compile_pipeline
 from thyme.expr import col
-from thyme.gen import dataset_pb2, expr_pb2
+from thyme.gen import expr_pb2
 from thyme.pipeline import Count, PipelineNode, Sum
 
 
