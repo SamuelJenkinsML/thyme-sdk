@@ -370,12 +370,18 @@ class MockContext:
             # Call the extractor: (cls, ts, *inputs)
             result = method(None, None, *input_vals)
 
-            # Store outputs
+            # Store outputs. Match the engine's wrapper semantics
+            # (crates/query-server/src/python.rs): a dict return is indexed by
+            # output name; a scalar return on a single-output extractor is
+            # auto-wrapped; a tuple/list return on a multi-output extractor
+            # is treated as positional.
             outputs = ext["outputs"]
-            if len(outputs) == 1:
+            if isinstance(result, dict):
+                for out_name in outputs:
+                    features[out_name] = result[out_name]
+            elif len(outputs) == 1:
                 features[outputs[0]] = result
             else:
-                # Multi-output: result should be iterable
                 for i, out_name in enumerate(outputs):
                     features[out_name] = result[i]
 
@@ -502,8 +508,14 @@ class MockContext:
             input_vals = [features.get(name, 0.0) for name in ext["inputs"]]
             result = method(None, None, *input_vals)
 
+            # Match the engine's wrapper (crates/query-server/src/python.rs):
+            # dict → index by name; scalar on single-output → auto-wrap;
+            # tuple/list on multi-output → positional.
             outputs = ext["outputs"]
-            if len(outputs) == 1:
+            if isinstance(result, dict):
+                for out_name in outputs:
+                    features[out_name] = result[out_name]
+            elif len(outputs) == 1:
                 features[outputs[0]] = result
             else:
                 for i, out_name in enumerate(outputs):
