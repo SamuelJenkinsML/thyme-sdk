@@ -35,16 +35,14 @@ def sample_ir() -> CodegenIR:
                 name="UserFeatures",
                 features=(
                     FeatureIR(
-                        name="user_id", python_annotation="int", feature_id=1
+                        name="user_id", python_annotation="int"
                     ),
                     FeatureIR(
-                        name="total_spend", python_annotation="float", feature_id=2
+                        name="total_spend", python_annotation="float"
                     ),
                     FeatureIR(
                         name="last_seen",
-                        python_annotation="datetime.datetime",
-                        feature_id=3,
-                    ),
+                        python_annotation="datetime.datetime"                    ),
                 ),
             ),
         ),
@@ -53,16 +51,14 @@ def sample_ir() -> CodegenIR:
                 name="Purchase",
                 fields=(
                     FeatureIR(
-                        name="user_id", python_annotation="int", feature_id=0
+                        name="user_id", python_annotation="int"
                     ),
                     FeatureIR(
-                        name="amount", python_annotation="float", feature_id=0
+                        name="amount", python_annotation="float"
                     ),
                     FeatureIR(
                         name="event_time",
-                        python_annotation="datetime.datetime",
-                        feature_id=0,
-                    ),
+                        python_annotation="datetime.datetime"                    ),
                 ),
             ),
         ),
@@ -221,12 +217,11 @@ class TestEmitPythonStubs:
                     name="Sparse",
                     fields=(
                         FeatureIR(
-                            name="id", python_annotation="int", feature_id=0
+                            name="id", python_annotation="int"
                         ),
                         FeatureIR(
                             name="note",
                             python_annotation="str",
-                            feature_id=0,
                             optional=True,
                         ),
                     ),
@@ -247,12 +242,11 @@ class TestEmitPythonStubs:
                     name="SparseSignals",
                     features=(
                         FeatureIR(
-                            name="user_id", python_annotation="int", feature_id=1
+                            name="user_id", python_annotation="int"
                         ),
                         FeatureIR(
                             name="last_score",
                             python_annotation="float",
-                            feature_id=2,
                             optional=True,
                         ),
                     ),

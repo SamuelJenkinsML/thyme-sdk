@@ -14,9 +14,9 @@ class Purchase:
 
 @featureset
 class UserFeatures:
-    user_id: int = feature(id=1)
-    total_spend: float = feature(id=2)
-    purchase_count: int = feature(id=3)
+    user_id: int = feature()
+    total_spend: float = feature()
+    purchase_count: int = feature()
 
 
 class NotAFeatureset:

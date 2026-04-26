@@ -26,9 +26,9 @@ class TestBuildIR:
         # given
         @featureset
         class UserFeatures:
-            user_id: int = feature(id=1)
-            total_spend: float = feature(id=2)
-            is_active: bool = feature(id=3)
+            user_id: int = feature()
+            total_spend: float = feature()
+            is_active: bool = feature()
 
         # when
         ir = build_ir()
@@ -40,7 +40,6 @@ class TestBuildIR:
         assert fs.name == "UserFeatures"
         assert [f.name for f in fs.features] == ["user_id", "total_spend", "is_active"]
         assert [f.python_annotation for f in fs.features] == ["int", "float", "bool"]
-        assert [f.feature_id for f in fs.features] == [1, 2, 3]
 
     def test_builds_dataset_ir_from_registry(self) -> None:
         # given
@@ -86,9 +85,9 @@ class TestBuildIR:
         # given a featureset whose features use Optional[T] and PEP-604 unions
         @featureset
         class SparseSignals:
-            user_id: int = feature(id=1)
-            last_score: Optional[float] = feature(id=2)
-            last_label: str | None = feature(id=3)
+            user_id: int = feature()
+            last_score: Optional[float] = feature()
+            last_label: str | None = feature()
 
         # when
         ir = build_ir()
@@ -108,7 +107,7 @@ class TestBuildIR:
         # given
         @featureset
         class Events:
-            last_seen: datetime = feature(id=1)
+            last_seen: datetime = feature()
 
         # when
         ir = build_ir()
@@ -121,7 +120,7 @@ class TestBuildIR:
         @featureset
         class BadNames:
             # 'class' is a keyword — we hand-craft the registry entry because
-            # Python won't let us write `class: int = feature(id=1)` in source.
+            # Python won't let us write `class: int = feature()` in source.
             pass
 
         # monkey-patch the registry so build_ir sees the bad name
@@ -129,7 +128,7 @@ class TestBuildIR:
 
         _FEATURESET_REGISTRY["BadNames"] = {
             "name": "BadNames",
-            "features": [{"name": "class", "dtype": "int", "id": 1}],
+            "features": [{"name": "class", "dtype": "int"}],
             "extractors": [],
         }
         assert keyword.iskeyword("class")
@@ -144,7 +143,7 @@ class TestBuildIR:
 
         _FEATURESET_REGISTRY["Weird"] = {
             "name": "Weird",
-            "features": [{"name": "payload", "dtype": "complex128", "id": 1}],
+            "features": [{"name": "payload", "dtype": "complex128"}],
             "extractors": [],
         }
 
@@ -161,11 +160,11 @@ class TestBuildIR:
         # given two featuresets declared in non-alphabetical order
         @featureset
         class Zebra:
-            x: int = feature(id=1)
+            x: int = feature()
 
         @featureset
         class Alpha:
-            y: int = feature(id=1)
+            y: int = feature()
 
         # when
         ir = build_ir()
@@ -179,12 +178,12 @@ class TestFeatureIRDataclass:
     """Given hand-built IR objects, they behave as frozen dataclasses."""
 
     def test_feature_ir_is_frozen(self) -> None:
-        f = FeatureIR(name="x", python_annotation="int", feature_id=1)
+        f = FeatureIR(name="x", python_annotation="int")
         with pytest.raises(Exception):
             f.name = "y"  # type: ignore[misc]
 
     def test_default_optional_is_false(self) -> None:
-        f = FeatureIR(name="x", python_annotation="int", feature_id=1)
+        f = FeatureIR(name="x", python_annotation="int")
         assert f.optional is False
 
     def test_featureset_ir_extractors_default_empty(self) -> None:
@@ -194,6 +193,6 @@ class TestFeatureIRDataclass:
     def test_dataset_ir_holds_fields(self) -> None:
         ds = DatasetIR(
             name="D",
-            fields=(FeatureIR(name="k", python_annotation="int", feature_id=0),),
+            fields=(FeatureIR(name="k", python_annotation="int"),),
         )
         assert ds.fields[0].name == "k"

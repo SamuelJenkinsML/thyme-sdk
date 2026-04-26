@@ -32,7 +32,16 @@ class FeatureDef:
 
     name: str
     dtype: str
-    id: int
+
+
+@dataclass
+class LookupInfo:
+    """Routing info for an auto-generated LOOKUP-kind extractor.
+    Mirrors crates/query-server/src/metadata.rs::LookupInfo."""
+
+    dataset_name: str
+    field_name: str
+    default: Any = None
 
 
 @dataclass
@@ -45,6 +54,8 @@ class ExtractorDef:
     deps: List[str]
     version: int = 1
     pycode: Optional[PyCodeDef] = None
+    kind: str = "PY_FUNC"
+    lookup_info: Optional[LookupInfo] = None
 
 
 @dataclass
@@ -114,6 +125,14 @@ def _to_extractor(ext: dict) -> ExtractorDef:
             source_code=ext["source_code"],
             generated_code=ext["source_code"],
         )
+    lookup_info = None
+    if ext.get("lookup_info"):
+        li = ext["lookup_info"]
+        lookup_info = LookupInfo(
+            dataset_name=li["dataset_name"],
+            field_name=li["field_name"],
+            default=li.get("default"),
+        )
     return ExtractorDef(
         name=ext["name"],
         inputs=ext.get("inputs", []),
@@ -121,12 +140,14 @@ def _to_extractor(ext: dict) -> ExtractorDef:
         deps=ext.get("deps", []),
         version=ext.get("version", 1),
         pycode=pycode,
+        kind=ext.get("kind", "PY_FUNC"),
+        lookup_info=lookup_info,
     )
 
 
 def _to_featureset(fs: dict) -> FeaturesetDef:
     features = [
-        FeatureDef(name=f["name"], dtype=f["dtype"], id=f["id"])
+        FeatureDef(name=f["name"], dtype=f["dtype"])
         for f in fs.get("features", [])
     ]
     extractors = [_to_extractor(ext) for ext in fs.get("extractors", [])]

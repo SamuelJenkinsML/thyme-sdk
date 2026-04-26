@@ -1,12 +1,17 @@
+from datetime import datetime
+
 import pytest
 
+from thyme.dataset import dataset, field
 from thyme.featureset import (
-    featureset,
-    feature,
+    EXTRACTOR_KIND_LOOKUP,
+    EXTRACTOR_KIND_PY_FUNC,
+    clear_featureset_registry,
     extractor,
     extractor_inputs,
     extractor_outputs,
-    clear_featureset_registry,
+    feature,
+    featureset,
     get_registered_featuresets,
 )
 
@@ -18,26 +23,42 @@ def clean_registry():
     clear_featureset_registry()
 
 
+# ---------------------------------------------------------------------------
+# Basic feature/extractor registration
+# ---------------------------------------------------------------------------
+
+
 def test_featureset_registers_features():
     @featureset
     class TestFeatures:
-        user_id: str = feature(id=1)
-        score: float = feature(id=2)
+        user_id: str = feature()
+        score: float = feature()
 
     fs = get_registered_featuresets()
     assert "TestFeatures" in fs
     assert len(fs["TestFeatures"]["features"]) == 2
     assert fs["TestFeatures"]["features"][0]["name"] == "user_id"
-    assert fs["TestFeatures"]["features"][0]["id"] == 1
     assert fs["TestFeatures"]["features"][1]["name"] == "score"
     assert fs["TestFeatures"]["features"][1]["dtype"] == "float"
+
+
+def test_features_have_no_id_field():
+    """After dropping integer feature IDs, features should not carry an id key."""
+    @featureset
+    class TestFeatures:
+        user_id: str = feature()
+        score: float = feature()
+
+    fs = get_registered_featuresets()
+    for f in fs["TestFeatures"]["features"]:
+        assert "id" not in f
 
 
 def test_featureset_registers_extractors():
     @featureset
     class TestFeatures:
-        score: float = feature(id=1)
-        is_good: bool = feature(id=2)
+        score: float = feature()
+        is_good: bool = feature()
 
         @extractor
         @extractor_inputs("score")
@@ -51,34 +72,37 @@ def test_featureset_registers_extractors():
     assert extractors[0]["name"] == "compute_good"
     assert extractors[0]["inputs"] == ["score"]
     assert extractors[0]["outputs"] == ["is_good"]
+    assert extractors[0]["kind"] == EXTRACTOR_KIND_PY_FUNC
 
 
-def test_extractor_with_deps():
+def test_user_extractor_with_deps_remains_pyfunc():
+    """A user-written @extractor with deps stays PY_FUNC. Only auto-generated
+    LOOKUP-kind extractors are created from feature(ref=...)."""
     class UserStats:
         pass
 
     @featureset
     class TestFeatures:
-        user_id: str = feature(id=1)
-        score: float = feature(id=2)
+        user_id: str = feature()
+        score: float = feature()
 
         @extractor(deps=[UserStats])
         @extractor_inputs("user_id")
         @extractor_outputs("score")
-        def get_score(cls, ts, user_ids):
-            pass
+        def compute_score(cls, ts, user_ids):
+            return 1.0
 
     fs = get_registered_featuresets()
     extractors = fs["TestFeatures"]["extractors"]
     assert len(extractors) == 1
     assert extractors[0]["deps"] == ["UserStats"]
-    assert extractors[0]["version"] == 1
+    assert extractors[0]["kind"] == EXTRACTOR_KIND_PY_FUNC
 
 
-def test_extractor_source_code_captured():
+def test_pyfunc_extractor_source_code_captured():
     @featureset
     class TestFeatures:
-        x: int = feature(id=1)
+        x: int = feature()
 
         @extractor
         def compute_x(cls, ts, data):
@@ -93,9 +117,9 @@ def test_extractor_source_code_captured():
 def test_feature_descriptor_stores_dtype():
     @featureset
     class TestFeatures:
-        name: str = feature(id=1)
-        count: int = feature(id=2)
-        active: bool = feature(id=3)
+        name: str = feature()
+        count: int = feature()
+        active: bool = feature()
 
     fs = get_registered_featuresets()
     features = {f["name"]: f for f in fs["TestFeatures"]["features"]}
@@ -105,42 +129,97 @@ def test_feature_descriptor_stores_dtype():
 
 
 # ---------------------------------------------------------------------------
-# Task 14: Feature ID validation
+# feature(ref=...) auto-generates LOOKUP-kind extractors
 # ---------------------------------------------------------------------------
 
 
-def test_duplicate_feature_id_raises():
-    with pytest.raises(ValueError, match="Duplicate feature id=1"):
+@dataset(version=1, index=True)
+class _UserProfile:
+    user_id: str = field(key=True)
+    loyalty_tier: str = field()
+    timestamp: datetime = field(timestamp=True)
+
+
+def test_feature_ref_generates_lookup_extractor():
+    @featureset
+    class WithLookup:
+        user_id: str = feature()
+        loyalty_tier: str = feature(ref=_UserProfile.loyalty_tier)
+
+    fs = get_registered_featuresets()
+    extractors = fs["WithLookup"]["extractors"]
+    assert len(extractors) == 1
+    ext = extractors[0]
+    assert ext["kind"] == EXTRACTOR_KIND_LOOKUP
+    assert ext["outputs"] == ["loyalty_tier"]
+    assert ext["lookup_info"]["dataset_name"] == "_UserProfile"
+    assert ext["lookup_info"]["field_name"] == "loyalty_tier"
+    # LOOKUP extractors have no Python body — the planner short-circuits
+    # to a ReadState step.
+    assert "source_code" not in ext
+
+
+def test_feature_ref_with_default_flows_into_lookup_info():
+    @featureset
+    class WithDefault:
+        user_id: str = feature()
+        loyalty_tier: str = feature(
+            ref=_UserProfile.loyalty_tier,
+            default="none",
+        )
+
+    fs = get_registered_featuresets()
+    ext = fs["WithDefault"]["extractors"][0]
+    assert ext["lookup_info"]["default"] == "none"
+
+
+def test_feature_ref_without_default_omits_default_field():
+    @featureset
+    class NoDefault:
+        user_id: str = feature()
+        loyalty_tier: str = feature(ref=_UserProfile.loyalty_tier)
+
+    fs = get_registered_featuresets()
+    ext = fs["NoDefault"]["extractors"][0]
+    assert "default" not in ext["lookup_info"]
+
+
+def test_feature_ref_rejects_non_field_argument():
+    with pytest.raises(TypeError, match="dataset Field reference"):
         @featureset
         class Bad:
-            a: int = feature(id=1)
-            b: float = feature(id=1)
+            user_id: str = feature()
+            wrong: str = feature(ref="not_a_field")  # type: ignore[arg-type]
 
 
-def test_feature_id_zero_raises():
-    with pytest.raises(ValueError, match="invalid id=0"):
-        @featureset
-        class Bad:
-            a: int = feature(id=0)
+def test_mixed_lookup_and_pyfunc_extractors_coexist():
+    @featureset
+    class Mixed:
+        user_id: str = feature()
+        loyalty_tier: str = feature(ref=_UserProfile.loyalty_tier, default="none")
+        intent_score: float = feature()
 
+        @extractor
+        @extractor_inputs("loyalty_tier")
+        @extractor_outputs("intent_score")
+        def compute_intent(cls, ts, loyalty_tier):
+            return 1.0
 
-def test_feature_id_negative_raises():
-    with pytest.raises(ValueError, match="invalid id=-1"):
-        @featureset
-        class Bad:
-            a: int = feature(id=-1)
+    fs = get_registered_featuresets()
+    by_kind = {ext["kind"] for ext in fs["Mixed"]["extractors"]}
+    assert by_kind == {EXTRACTOR_KIND_LOOKUP, EXTRACTOR_KIND_PY_FUNC}
 
 
 # ---------------------------------------------------------------------------
-# Task 15: Extractor input/output validation
+# Extractor input/output validation
 # ---------------------------------------------------------------------------
 
 
 def test_extractor_valid_input_output_passes():
     @featureset
     class Good:
-        score: float = feature(id=1)
-        is_good: bool = feature(id=2)
+        score: float = feature()
+        is_good: bool = feature()
 
         @extractor
         @extractor_inputs("score")
@@ -156,8 +235,8 @@ def test_extractor_bad_input_name_raises():
     with pytest.raises(ValueError, match="input feature 'scroe'"):
         @featureset
         class Bad:
-            score: float = feature(id=1)
-            is_good: bool = feature(id=2)
+            score: float = feature()
+            is_good: bool = feature()
 
             @extractor
             @extractor_inputs("scroe")
@@ -170,8 +249,8 @@ def test_extractor_bad_output_name_raises():
     with pytest.raises(ValueError, match="output feature 'is_goood'"):
         @featureset
         class Bad:
-            score: float = feature(id=1)
-            is_good: bool = feature(id=2)
+            score: float = feature()
+            is_good: bool = feature()
 
             @extractor
             @extractor_inputs("score")
@@ -183,7 +262,7 @@ def test_extractor_bad_output_name_raises():
 def test_extractor_empty_inputs_outputs_allowed():
     @featureset
     class DepsOnly:
-        score: float = feature(id=1)
+        score: float = feature()
 
         @extractor
         def fetch(cls, ts, data):
