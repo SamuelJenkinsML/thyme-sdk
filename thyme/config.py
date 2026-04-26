@@ -77,6 +77,7 @@ class KinesisConfig:
     stream_arn: str = ""
     role_arn: str = ""
     region: str = "us-east-1"
+    endpoint_url: str = ""
 
 
 @dataclass
@@ -215,6 +216,7 @@ class Config:
             stream_arn=kin.get("stream_arn", KinesisConfig.stream_arn),
             role_arn=kin.get("role_arn", KinesisConfig.role_arn),
             region=kin.get("region", KinesisConfig.region),
+            endpoint_url=kin.get("endpoint_url", KinesisConfig.endpoint_url),
         )
 
         # Snowflake
@@ -325,6 +327,7 @@ class Config:
             stream_arn=stream_arn,
             role_arn=self.kinesis.role_arn,
             region=self.kinesis.region,
+            endpoint_url=self.kinesis.endpoint_url or None,
         )
 
     def snowflake_source(self, table: str) -> "SnowflakeSource":
@@ -447,6 +450,7 @@ def _apply_env_overrides(config: Config) -> None:
         "THYME_KINESIS_STREAM_ARN": ("stream_arn", str),
         "THYME_KINESIS_ROLE_ARN": ("role_arn", str),
         "THYME_KINESIS_REGION": ("region", str),
+        "THYME_KINESIS_ENDPOINT_URL": ("endpoint_url", str),
     }
     for key, (attr, fn) in kinesis.items():
         val = os.environ.get(key)

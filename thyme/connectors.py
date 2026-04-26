@@ -147,6 +147,7 @@ class KinesisSource:
         region: str = "us-east-1",
         init_position: str = "latest",
         format: str = "json",
+        endpoint_url: str | None = None,
     ):
         if init_position not in self._VALID_INIT_POSITIONS:
             try:
@@ -167,18 +168,19 @@ class KinesisSource:
         self.region = region
         self.init_position = init_position
         self.format = format
+        self.endpoint_url = endpoint_url
 
     def to_dict(self) -> dict:
-        return {
-            "connector_type": "kinesis",
-            "config": {
-                "stream_arn": self.stream_arn,
-                "role_arn": self.role_arn,
-                "region": self.region,
-                "init_position": self.init_position,
-                "format": self.format,
-            },
+        config = {
+            "stream_arn": self.stream_arn,
+            "role_arn": self.role_arn,
+            "region": self.region,
+            "init_position": self.init_position,
+            "format": self.format,
         }
+        if self.endpoint_url is not None:
+            config["endpoint_url"] = self.endpoint_url
+        return {"connector_type": "kinesis", "config": config}
 
 
 class SnowflakeSource:

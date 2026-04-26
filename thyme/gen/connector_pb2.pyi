@@ -68,18 +68,20 @@ class KafkaSource(_message.Message):
     def __init__(self, brokers: _Optional[str] = ..., topic: _Optional[str] = ..., security_protocol: _Optional[str] = ..., sasl_mechanism: _Optional[str] = ..., sasl_username: _Optional[str] = ..., sasl_password: _Optional[str] = ..., format: _Optional[str] = ..., group_id: _Optional[str] = ..., schema_registry_url: _Optional[str] = ...) -> None: ...
 
 class KinesisSource(_message.Message):
-    __slots__ = ("stream_arn", "role_arn", "region", "init_position", "format")
+    __slots__ = ("stream_arn", "role_arn", "region", "init_position", "format", "endpoint_url")
     STREAM_ARN_FIELD_NUMBER: _ClassVar[int]
     ROLE_ARN_FIELD_NUMBER: _ClassVar[int]
     REGION_FIELD_NUMBER: _ClassVar[int]
     INIT_POSITION_FIELD_NUMBER: _ClassVar[int]
     FORMAT_FIELD_NUMBER: _ClassVar[int]
+    ENDPOINT_URL_FIELD_NUMBER: _ClassVar[int]
     stream_arn: str
     role_arn: str
     region: str
     init_position: str
     format: str
-    def __init__(self, stream_arn: _Optional[str] = ..., role_arn: _Optional[str] = ..., region: _Optional[str] = ..., init_position: _Optional[str] = ..., format: _Optional[str] = ...) -> None: ...
+    endpoint_url: str
+    def __init__(self, stream_arn: _Optional[str] = ..., role_arn: _Optional[str] = ..., region: _Optional[str] = ..., init_position: _Optional[str] = ..., format: _Optional[str] = ..., endpoint_url: _Optional[str] = ...) -> None: ...
 
 class SnowflakeSource(_message.Message):
     __slots__ = ("account", "database", "schema", "warehouse", "role", "table", "user", "password")

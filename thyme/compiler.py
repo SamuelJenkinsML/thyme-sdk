@@ -286,6 +286,7 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             region=config.get("region", "us-east-1"),
             init_position=config.get("init_position", "latest"),
             format=config.get("format", "json"),
+            endpoint_url=config.get("endpoint_url", ""),
         ))
     elif connector_type == "snowflake":
         source.snowflake.CopyFrom(connector_pb2.SnowflakeSource(
