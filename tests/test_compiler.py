@@ -34,6 +34,54 @@ def test_compile_dataset():
     assert proto.schema.fields[2].is_timestamp is True
 
 
+def test_compile_pipeline_with_aggregate_where_predicate_roundtrips():
+    """Regression: Count(where=col(...) == ...) builds a Predicate proto on
+    the agg spec; compile_pipeline must accept it directly. Previously the
+    CLI passed the wire-form payload (predicate flattened to a dict) and the
+    proto compiler's isinstance check tripped, surfacing as 'Warning:
+    protobuf compilation failed (aggregate predicate must be a Predicate
+    proto, got dict); falling back to JSON' on every commit using `where=`."""
+    from datetime import datetime
+
+    from thyme.dataset import dataset, field, get_registered_pipelines
+    from thyme.expr import col
+    from thyme.pipeline import Count, pipeline
+
+    @dataset(version=1, index=True)
+    class Activity:
+        user_id: str = field(key=True)
+        event_type: str = field()
+        timestamp: datetime = field(timestamp=True)
+
+    @dataset(version=1, index=True)
+    class UserStats:
+        user_id: str = field(key=True)
+        book_count_24h: int = field()
+        timestamp: datetime = field(timestamp=True)
+
+        @pipeline(version=1)
+        def compute_stats(cls, activity):
+            return (
+                activity.groupby("user_id")
+                .aggregate(
+                    book_count_24h=Count(
+                        where=col("event_type") == "book", window="24h"
+                    ),
+                )
+            )
+
+    raw_pipelines = get_registered_pipelines()
+    # The proto path is the raw registry; no warnings or TypeErrors expected.
+    proto = compile_pipeline(raw_pipelines[0])
+    agg = proto.operators[-1].aggregate
+    assert len(agg.specs) == 1
+    spec = agg.specs[0]
+    assert spec.agg_type == "count"
+    assert spec.window == "24h"
+    # Predicate field must be populated (not the empty default).
+    assert spec.HasField("predicate"), "predicate field must round-trip into the proto"
+
+
 def test_compile_pipeline_with_aggregate():
     pipe_meta = {
         "name": "compute_stats",
