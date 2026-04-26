@@ -19,7 +19,6 @@ from thyme.featureset import get_registered_featuresets
 class FeatureIR:
     name: str
     python_annotation: str
-    feature_id: int
     optional: bool = False
 
 
@@ -64,7 +63,6 @@ def _feature_ir_from_featureset_entry(fs_name: str, entry: dict) -> FeatureIR:
     return FeatureIR(
         name=name,
         python_annotation=thyme_type_to_python_annotation(entry["dtype"]),
-        feature_id=entry["id"],
         optional=bool(entry.get("optional", False)),
     )
 
@@ -75,7 +73,6 @@ def _feature_ir_from_dataset_field(ds_name: str, entry: dict) -> FeatureIR:
     return FeatureIR(
         name=name,
         python_annotation=thyme_type_to_python_annotation(entry["type"]),
-        feature_id=0,
         optional=bool(entry.get("optional", False)),
     )
 

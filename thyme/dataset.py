@@ -14,11 +14,30 @@ def _is_union_origin(origin: Any) -> bool:
 
 
 class Field:
-    """Descriptor for dataset fields. Tracks key and timestamp metadata."""
+    """Descriptor for dataset fields. Tracks key/timestamp metadata and
+    (post-decoration) the field's name, parent dataset name, and dtype so it
+    can be used as a typed reference at featureset-definition time, e.g.
+    ``feature(ref=UserProfile.loyalty_tier)``."""
 
     def __init__(self, key: bool = False, timestamp: bool = False):
         self.key = key
         self.timestamp = timestamp
+        # Populated by the @dataset decorator after class construction.
+        self.name: str | None = None
+        self.dataset_name: str | None = None
+        self.dtype: Any = None
+
+    def fqn(self) -> str:
+        if self.name is None or self.dataset_name is None:
+            raise RuntimeError(
+                "Field is not bound to a dataset yet — apply @dataset first."
+            )
+        return f"{self.dataset_name}.{self.name}"
+
+    def __repr__(self) -> str:
+        if self.dataset_name and self.name:
+            return f"<Field {self.fqn()}>"
+        return "<Field unbound>"
 
 
 def field(key: bool = False, timestamp: bool = False) -> Any:
@@ -122,6 +141,25 @@ def _build_schema(cls: type, index: bool, version: int) -> dict:
     }
 
 
+def _bind_field_references(cls: type) -> None:
+    """Populate name/dataset_name/dtype on each Field descriptor and bind them
+    as class attributes so ``UserProfile.loyalty_tier`` returns the Field at
+    runtime (for use as ``feature(ref=...)`` arguments).
+
+    Runtime tradeoff: post-decoration ``UserProfile.loyalty_tier`` resolves to
+    a Field, not the annotated type. This is intentional — dataset field
+    references on the class are used purely as routing handles for the
+    featureset, not as values to read.
+    """
+    for f in fields(cls):
+        default = f.default
+        if isinstance(default, Field):
+            default.name = f.name
+            default.dataset_name = cls.__name__
+            default.dtype = f.type
+            setattr(cls, f.name, default)
+
+
 def _discover_expectations(cls: type) -> None:
     """Scan a dataset class for @expectations methods and store specs in the registry."""
     for name in dir(cls):
@@ -192,6 +230,7 @@ def dataset(index: bool = False, version: int = 1):
         schema = _build_schema(cls, index=index, version=version)
         _DATASET_REGISTRY[cls.__name__] = schema
         cls._dataset_meta = schema
+        _bind_field_references(cls)
         _discover_expectations(cls)
         _discover_pipelines(cls)
         return cls

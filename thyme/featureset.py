@@ -2,20 +2,53 @@ import inspect
 import textwrap
 from typing import Any, Callable, List, Optional
 
-from thyme.dataset import _is_optional, _type_to_string
+from thyme.dataset import Field, _is_optional, _type_to_string
+
+
+# Extractor kinds — must match crates/query-server/src/metadata.rs ExtractorKind
+# and the proto enum in proto/thyme/featureset.proto.
+EXTRACTOR_KIND_PY_FUNC = "PY_FUNC"
+EXTRACTOR_KIND_LOOKUP = "LOOKUP"
 
 
 class FeatureDescriptor:
-    """Descriptor for a feature in a featureset."""
+    """Descriptor for a feature in a featureset.
 
-    def __init__(self, id: int, dtype: Optional[str] = None):
-        self.id = id
+    Two flavours:
+    - ``feature()`` / ``feature(ref=Dataset.field, default=...)`` — declares
+      where the value comes from. ``ref`` triggers the @featureset decorator
+      to synthesize an auto-generated LOOKUP extractor for the feature.
+    - Bare ``feature()`` — value is produced by a user-defined PY_FUNC
+      extractor (or is the featureset's entity ID).
+    """
+
+    def __init__(
+        self,
+        ref: Field | None = None,
+        default: Any = None,
+        dtype: Optional[str] = None,
+    ):
+        self.ref = ref
+        self.default = default
         self.dtype = dtype
 
 
-def feature(id: int) -> Any:
-    """Create a feature descriptor with an integer ID."""
-    return FeatureDescriptor(id=id)
+def feature(
+    *,
+    ref: Field | None = None,
+    default: Any = None,
+) -> Any:
+    """Declare a feature on a featureset.
+
+    Args:
+        ref: A dataset field reference (e.g. ``UserProfile.loyalty_tier``).
+            When set, the SDK auto-generates a LOOKUP-kind extractor that
+            pulls this field from the named dataset at query time. No body
+            required.
+        default: Value to return when the dataset lookup misses (the entity
+            has no row in the dataset). Only meaningful with ``ref``.
+    """
+    return FeatureDescriptor(ref=ref, default=default)
 
 
 class Extractor:
@@ -50,6 +83,15 @@ def get_registered_featuresets() -> dict[str, dict]:
     return deepcopy(_FEATURESET_REGISTRY)
 
 
+def _literal_for_default(value: Any) -> Any:
+    """Pass-through serialization for default values. Stored in the LOOKUP
+    extractor's ``lookup_info.default`` and round-tripped through JSON to the
+    Rust planner. Accepts the four scalar shapes the proto Literal supports:
+    str, int, float, bool. Other shapes flow through unchanged for now and
+    are rejected at commit time on the Rust side if unsupported."""
+    return value
+
+
 def featureset(cls: type) -> type:
     """Decorator to register a class as a featureset."""
     features = []
@@ -57,41 +99,59 @@ def featureset(cls: type) -> type:
 
     annotations = getattr(cls, "__annotations__", {})
 
+    # Cache (name → FeatureDescriptor) so the LOOKUP synthesis pass below can
+    # match output features back to their declared `ref` / `default`.
+    feature_descriptors: dict[str, FeatureDescriptor] = {}
+
     for attr_name, attr_type in annotations.items():
         default = getattr(cls, attr_name, None)
         if isinstance(default, FeatureDescriptor):
-            # Mirror dataset.py's nullable handling: PEP-604 unions like
-            # `int | None` and `Optional[int]` get unwrapped to the base
-            # dtype, with an `optional` flag set on the schema entry so
-            # downstream stages (codegen IR, proto compiler) can re-attach
-            # the nullable wrapper.
             type_name = _type_to_string(attr_type)
             default.dtype = type_name
             entry: dict[str, Any] = {
                 "name": attr_name,
                 "dtype": type_name,
-                "id": default.id,
             }
             if _is_optional(attr_type):
                 entry["optional"] = True
             features.append(entry)
+            feature_descriptors[attr_name] = default
 
-    # Validate feature IDs are positive and unique
-    seen_ids = {}
-    for f in features:
-        fid = f["id"]
-        if not isinstance(fid, int) or fid <= 0:
-            raise ValueError(
-                f"Feature '{f['name']}' in featureset '{cls.__name__}' has invalid id={fid}; "
-                f"feature IDs must be positive integers (> 0)"
+    # Synthesize LOOKUP-kind extractors for every feature with a `ref`. These
+    # are auto-generated at decoration time — no source body, no inspect.
+    for attr_name, desc in feature_descriptors.items():
+        if desc.ref is None:
+            continue
+        if not isinstance(desc.ref, Field):
+            raise TypeError(
+                f"feature(ref=...) for '{cls.__name__}.{attr_name}' expects a "
+                f"dataset Field reference (e.g. UserProfile.loyalty_tier), got "
+                f"{type(desc.ref).__name__}"
             )
-        if fid in seen_ids:
-            raise ValueError(
-                f"Duplicate feature id={fid} in featureset '{cls.__name__}': "
-                f"used by both '{seen_ids[fid]}' and '{f['name']}'"
+        if desc.ref.dataset_name is None or desc.ref.name is None:
+            raise RuntimeError(
+                f"Field reference for '{cls.__name__}.{attr_name}' is unbound — "
+                f"the parent dataset must be decorated with @dataset before the "
+                f"featureset is defined."
             )
-        seen_ids[fid] = f["name"]
+        lookup_info: dict[str, Any] = {
+            "dataset_name": desc.ref.dataset_name,
+            "field_name": desc.ref.name,
+        }
+        if desc.default is not None:
+            lookup_info["default"] = _literal_for_default(desc.default)
+        extractors.append({
+            "name": f"_thyme_lookup_{attr_name}",
+            "deps": [desc.ref.dataset_name],
+            "inputs": [],
+            "outputs": [attr_name],
+            "version": 1,
+            "kind": EXTRACTOR_KIND_LOOKUP,
+            "lookup_info": lookup_info,
+            # No source_code — LOOKUP extractors carry no Python body.
+        })
 
+    # User-defined PY_FUNC extractors. Source captured for these only.
     for attr_name in dir(cls):
         attr = getattr(cls, attr_name, None)
         if callable(attr) and hasattr(attr, "_is_extractor"):
@@ -110,6 +170,7 @@ def featureset(cls: type) -> type:
                 "inputs": input_features,
                 "outputs": output_features,
                 "version": version,
+                "kind": EXTRACTOR_KIND_PY_FUNC,
                 "source_code": textwrap.dedent(inspect.getsource(attr)),
             })
 

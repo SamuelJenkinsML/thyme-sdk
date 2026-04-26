@@ -195,6 +195,35 @@ def compile_pipeline(pipeline_meta: dict) -> dataset_pb2.Pipeline:
     )
 
 
+_EXTRACTOR_KIND_MAP = {
+    "PY_FUNC": featureset_pb2.PY_FUNC,
+    "LOOKUP": featureset_pb2.LOOKUP,
+}
+
+
+def _literal_pb_for_default(value):
+    """Lower a Python scalar default value into a Literal proto (the same
+    union shape used by expression filters/assigns). Returns None if the
+    value is None — proto-side, an absent default means "no default; return
+    null on miss"."""
+    from thyme.gen import expr_pb2
+
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return expr_pb2.Literal(bool_value=value)
+    if isinstance(value, int):
+        return expr_pb2.Literal(int_value=value)
+    if isinstance(value, float):
+        return expr_pb2.Literal(float_value=value)
+    if isinstance(value, str):
+        return expr_pb2.Literal(string_value=value)
+    raise TypeError(
+        f"feature(default=...) only supports str/int/float/bool, got "
+        f"{type(value).__name__}"
+    )
+
+
 def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
     features = []
     for f in fs_meta.get("features", []):
@@ -206,7 +235,6 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
         features.append(featureset_pb2.Feature(
             name=f["name"],
             dtype=dtype,
-            id=f["id"],
         ))
 
     extractors = []
@@ -218,6 +246,18 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
             pc = ext["pycode"]
             pycode = _make_pycode(pc["source_code"], pc.get("entry_point", ext["name"]))
 
+        kind_str = ext.get("kind", "PY_FUNC")
+        kind = _EXTRACTOR_KIND_MAP.get(kind_str, featureset_pb2.PY_FUNC)
+
+        lookup_info_pb = None
+        if ext.get("lookup_info"):
+            li = ext["lookup_info"]
+            lookup_info_pb = featureset_pb2.LookupInfo(
+                dataset_name=li["dataset_name"],
+                field_name=li["field_name"],
+                default=_literal_pb_for_default(li.get("default")),
+            )
+
         extractors.append(featureset_pb2.Extractor(
             name=ext["name"],
             inputs=ext.get("inputs", []),
@@ -225,6 +265,8 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
             deps=ext.get("deps", []),
             pycode=pycode,
             version=ext.get("version", 1),
+            kind=kind,
+            lookup_info=lookup_info_pb,
         ))
 
     return featureset_pb2.Featureset(

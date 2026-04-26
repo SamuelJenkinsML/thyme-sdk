@@ -458,10 +458,10 @@ class TestMockContextExtractors:
 
         @featureset
         class UserFeatures:
-            user_id: str = feature(id=1)
-            total_spend: float = feature(id=2)
-            order_count: float = feature(id=3)
-            is_whale: bool = feature(id=4)
+            user_id: str = feature()
+            total_spend: float = feature()
+            order_count: float = feature()
+            is_whale: bool = feature()
 
             @extractor(deps=[UserStats])
             @extractor_inputs("user_id")
@@ -517,10 +517,10 @@ class TestMockContextExtractors:
 
         @featureset
         class UserFeatures2:
-            user_id: str = feature(id=1)
-            total_spend: float = feature(id=2)
-            order_count: float = feature(id=3)
-            is_whale: bool = feature(id=4)
+            user_id: str = feature()
+            total_spend: float = feature()
+            order_count: float = feature()
+            is_whale: bool = feature()
 
             @extractor(deps=[UserStats2])
             @extractor_inputs("user_id")
@@ -600,12 +600,12 @@ class TestCrossValidationWithE2E:
 
         @featureset
         class RestaurantFeatures:
-            restaurant_id: str = feature(id=1)
-            avg_rating_30d: float = feature(id=2)
-            review_count_30d: int = feature(id=3)
-            is_highly_rated: bool = feature(id=4)
-            review_count_7d: int = feature(id=5)
-            max_rating_30d: float = feature(id=6)
+            restaurant_id: str = feature()
+            avg_rating_30d: float = feature()
+            review_count_30d: int = feature()
+            is_highly_rated: bool = feature()
+            review_count_7d: int = feature()
+            max_rating_30d: float = feature()
 
             @extractor(deps=[RestaurantRatingStats])
             @extractor_inputs("restaurant_id")
@@ -703,8 +703,8 @@ class TestMockContextQueryOffline:
 
         @featureset
         class F:
-            entity_id: str = feature(id=1)
-            cnt: float = feature(id=2)
+            entity_id: str = feature()
+            cnt: float = feature()
 
             @extractor(deps=[Stats])
             @extractor_inputs("entity_id")
@@ -753,8 +753,8 @@ class TestMockContextQueryOffline:
 
         @featureset
         class F2:
-            entity_id: str = feature(id=1)
-            total: float = feature(id=2)
+            entity_id: str = feature()
+            total: float = feature()
 
             @extractor(deps=[Stats2])
             @extractor_inputs("entity_id")
@@ -800,8 +800,8 @@ class TestMockContextQueryOffline:
 
         @featureset
         class F3:
-            entity_id: str = feature(id=1)
-            cnt: float = feature(id=2)
+            entity_id: str = feature()
+            cnt: float = feature()
 
             @extractor(deps=[Stats3])
             @extractor_inputs("entity_id")
@@ -842,8 +842,8 @@ class TestMockContextQueryOffline:
 
         @featureset
         class F4:
-            entity_id: str = feature(id=1)
-            cnt: float = feature(id=2)
+            entity_id: str = feature()
+            cnt: float = feature()
 
             @extractor(deps=[Stats4])
             @extractor_inputs("entity_id")

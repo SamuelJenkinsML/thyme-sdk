@@ -989,9 +989,8 @@ def inspect(
         ft = Table(title="Features")
         ft.add_column("Name")
         ft.add_column("dtype")
-        ft.add_column("id")
         for f in data["features"]:
-            ft.add_row(str(f.get("name", "")), str(f.get("dtype", "")), str(f.get("id", "")))
+            ft.add_row(str(f.get("name", "")), str(f.get("dtype", "")))
         console.print(ft)
 
     if data.get("extractors"):

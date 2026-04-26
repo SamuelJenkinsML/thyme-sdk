@@ -117,9 +117,9 @@ def test_compile_featureset():
     fs_meta = {
         "name": "RestaurantFeatures",
         "features": [
-            {"name": "restaurant_id", "dtype": "str", "id": 1},
-            {"name": "avg_rating_30d", "dtype": "float", "id": 2},
-            {"name": "is_highly_rated", "dtype": "bool", "id": 3},
+            {"name": "restaurant_id", "dtype": "str"},
+            {"name": "avg_rating_30d", "dtype": "float"},
+            {"name": "is_highly_rated", "dtype": "bool"},
         ],
         "extractors": [{
             "name": "compute_highly_rated",
@@ -128,16 +128,46 @@ def test_compile_featureset():
             "deps": [],
             "source_code": "def compute_highly_rated(cls, ts, ratings): return ratings > 4.0",
             "version": 1,
+            "kind": "PY_FUNC",
         }],
     }
     proto = compile_featureset(fs_meta)
     assert proto.name == "RestaurantFeatures"
     assert len(proto.features) == 3
     assert proto.features[0].name == "restaurant_id"
-    assert proto.features[0].id == 1
     assert len(proto.extractors) == 1
     assert proto.extractors[0].name == "compute_highly_rated"
     assert proto.extractors[0].pycode.entry_point == "compute_highly_rated"
+
+
+def test_compile_featureset_lookup_kind():
+    """LOOKUP-kind extractors carry lookup_info on the proto."""
+    fs_meta = {
+        "name": "Signals",
+        "features": [
+            {"name": "user_id", "dtype": "str"},
+            {"name": "loyalty_tier", "dtype": "str"},
+        ],
+        "extractors": [{
+            "name": "_thyme_lookup_loyalty_tier",
+            "inputs": [],
+            "outputs": ["loyalty_tier"],
+            "deps": ["UserProfile"],
+            "version": 1,
+            "kind": "LOOKUP",
+            "lookup_info": {
+                "dataset_name": "UserProfile",
+                "field_name": "loyalty_tier",
+                "default": "none",
+            },
+        }],
+    }
+    proto = compile_featureset(fs_meta)
+    ext = proto.extractors[0]
+    assert ext.HasField("lookup_info")
+    assert ext.lookup_info.dataset_name == "UserProfile"
+    assert ext.lookup_info.field_name == "loyalty_tier"
+    assert ext.lookup_info.default.string_value == "none"
 
 
 def test_compile_source():
