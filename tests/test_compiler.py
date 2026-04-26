@@ -226,7 +226,7 @@ def test_compile_source_kafka():
         },
         "cursor": "event_time",
         "every": "1m",
-        "disorder": "5m",
+        "max_lateness": "5m",
         "cdc": "append",
     }
 
@@ -237,7 +237,7 @@ def test_compile_source_kafka():
     assert proto.dataset == "RawEvents"
     assert proto.cursor == "event_time"
     assert proto.every == "1m"
-    assert proto.disorder == "5m"
+    assert proto.max_lateness == "5m"
     assert proto.cdc == "append"
     assert proto.kafka.brokers == "kafka:9092,kafka:9093"
     assert proto.kafka.topic == "raw-events"
@@ -264,7 +264,7 @@ def test_compile_source_kinesis():
         },
         "cursor": "",
         "every": "",
-        "disorder": "5m",
+        "max_lateness": "5m",
         "cdc": "append",
     }
 
@@ -275,7 +275,7 @@ def test_compile_source_kinesis():
     assert proto.dataset == "ClickEvents"
     assert proto.cursor == ""
     assert proto.every == ""
-    assert proto.disorder == "5m"
+    assert proto.max_lateness == "5m"
     assert proto.cdc == "append"
     assert proto.kinesis.stream_arn == "arn:aws:kinesis:us-east-1:123456789:stream/clicks"
     assert proto.kinesis.role_arn == "arn:aws:iam::123456789:role/kinesis-reader"
@@ -321,7 +321,7 @@ def test_compile_source_snowflake():
         },
         "cursor": "updated_at",
         "every": "5m",
-        "disorder": "1h",
+        "max_lateness": "1h",
         "cdc": "append",
     }
 
@@ -332,7 +332,7 @@ def test_compile_source_snowflake():
     assert proto.dataset == "Orders"
     assert proto.cursor == "updated_at"
     assert proto.every == "5m"
-    assert proto.disorder == "1h"
+    assert proto.max_lateness == "1h"
     assert proto.cdc == "append"
     assert proto.snowflake.account == "xy12345.us-east-1"
     assert proto.snowflake.database == "analytics"
@@ -357,7 +357,7 @@ def test_compile_source_bigquery():
         },
         "cursor": "event_time",
         "every": "10m",
-        "disorder": "",
+        "max_lateness": "",
         "cdc": "append",
     }
 

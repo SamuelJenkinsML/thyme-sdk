@@ -265,7 +265,7 @@ def source(
     connector: Any,
     cursor: str = "",
     every: str = "",
-    disorder: str = "",
+    max_lateness: str = "",
     cdc: str = "append",
 ) -> Callable:
     """Decorator to attach a source connector to a dataset class.
@@ -274,8 +274,8 @@ def source(
         connector: The source connector (e.g. IcebergSource).
         cursor: The field to use as an incremental cursor.
         every: Poll interval (e.g. "5m", "1h").
-        disorder: Maximum expected out-of-order delay (e.g. "1h", "1d").
-            Events arriving later than (max_event_time - disorder) are
+        max_lateness: Maximum expected out-of-order delay (e.g. "1h", "1d").
+            Events arriving later than (max_event_time - max_lateness) are
             discarded. This sets the watermark for all downstream pipelines.
     """
 
@@ -304,7 +304,7 @@ def source(
         source_meta["dataset"] = cls.__name__
         source_meta["cursor"] = cursor
         source_meta["every"] = every
-        source_meta["disorder"] = disorder
+        source_meta["max_lateness"] = max_lateness
         source_meta["cdc"] = cdc
         _SOURCE_REGISTRY[cls.__name__] = source_meta
         cls._source_meta = source_meta

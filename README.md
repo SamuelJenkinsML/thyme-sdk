@@ -153,7 +153,7 @@ from thyme import source, IcebergSource
     IcebergSource(catalog="prod", database="events", table="transactions"),
     cursor="ts",
     every="1m",
-    disorder="5m",
+    max_lateness="5m",
     cdc="append",
 )
 @dataset(index=True, version=1)
@@ -182,7 +182,7 @@ from thyme import source, IcebergSource
     IcebergSource(catalog="prod", database="reviews", table="restaurant_reviews"),
     cursor="timestamp",
     every="1m",
-    disorder="5m",
+    max_lateness="5m",
     cdc="append",
 )
 @dataset(index=True, version=1)

@@ -239,7 +239,7 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
         dataset=src_meta["dataset"],
         cursor=src_meta.get("cursor", ""),
         every=src_meta.get("every", ""),
-        disorder=src_meta.get("disorder", ""),
+        max_lateness=src_meta.get("max_lateness", ""),
         cdc=src_meta.get("cdc", "append"),
     )
     config = src_meta.get("config", {})

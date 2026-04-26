@@ -56,18 +56,18 @@ def test_source_decorator_preserves_class():
     assert hasattr(MyDataset, "_source_meta")
 
 
-def test_source_disorder_is_stored():
+def test_source_max_lateness_is_stored():
     src = IcebergSource(catalog="c", database="d", table="t")
 
-    @source(src, cursor="ts", every="5m", disorder="1h")
+    @source(src, cursor="ts", every="5m", max_lateness="1h")
     class Review:
         pass
 
     sources = get_registered_sources()
-    assert sources["Review"]["disorder"] == "1h"
+    assert sources["Review"]["max_lateness"] == "1h"
 
 
-def test_source_disorder_defaults_to_empty():
+def test_source_max_lateness_defaults_to_empty():
     src = IcebergSource(catalog="c", database="d", table="t")
 
     @source(src, cursor="ts")
@@ -75,7 +75,7 @@ def test_source_disorder_defaults_to_empty():
         pass
 
     sources = get_registered_sources()
-    assert sources["Review"]["disorder"] == ""
+    assert sources["Review"]["max_lateness"] == ""
 
 
 def test_source_cdc_defaults_to_append():
@@ -527,7 +527,7 @@ def test_kinesis_source_registers_with_source_decorator():
         stream_arn="arn:aws:kinesis:us-east-1:123:stream/events",
     )
 
-    @source(kin_src, disorder="5m", cdc="append")
+    @source(kin_src, max_lateness="5m", cdc="append")
     class KinesisDataset:
         pass
 
@@ -539,7 +539,7 @@ def test_kinesis_source_registers_with_source_decorator():
     assert sources["KinesisDataset"]["connector_type"] == "kinesis"
     assert sources["KinesisDataset"]["cursor"] == ""
     assert sources["KinesisDataset"]["every"] == ""
-    assert sources["KinesisDataset"]["disorder"] == "5m"
+    assert sources["KinesisDataset"]["max_lateness"] == "5m"
 
 
 # ---------------------------------------------------------------------------

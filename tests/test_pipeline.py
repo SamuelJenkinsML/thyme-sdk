@@ -60,7 +60,7 @@ def test_inputs_decorator_sets_datasets():
 
 
 def test_agg_op_has_no_lateness_config():
-    """Lateness is configured at the source level (disorder), not per-aggregation."""
+    """Lateness is configured at the source level (max_lateness), not per-aggregation."""
     op = Avg(of="rating", window="30d")
     assert not hasattr(op, "allowed_lateness")
-    assert not hasattr(op, "disorder")
+    assert not hasattr(op, "max_lateness")
