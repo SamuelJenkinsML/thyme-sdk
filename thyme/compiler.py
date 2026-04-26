@@ -198,9 +198,14 @@ def compile_pipeline(pipeline_meta: dict) -> dataset_pb2.Pipeline:
 def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
     features = []
     for f in fs_meta.get("features", []):
+        dtype = _type_str_to_proto(f["dtype"])
+        if f.get("optional"):
+            dtype = schema_pb2.DataType(
+                optional_type=schema_pb2.OptionalType(inner=dtype)
+            )
         features.append(featureset_pb2.Feature(
             name=f["name"],
-            dtype=_type_str_to_proto(f["dtype"]),
+            dtype=dtype,
             id=f["id"],
         ))
 

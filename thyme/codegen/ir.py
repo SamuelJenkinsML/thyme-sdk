@@ -65,6 +65,7 @@ def _feature_ir_from_featureset_entry(fs_name: str, entry: dict) -> FeatureIR:
         name=name,
         python_annotation=thyme_type_to_python_annotation(entry["dtype"]),
         feature_id=entry["id"],
+        optional=bool(entry.get("optional", False)),
     )
 
 

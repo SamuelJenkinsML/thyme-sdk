@@ -82,6 +82,28 @@ class TestBuildIR:
         assert fields_by_name["note"].python_annotation == "str"
         assert fields_by_name["entity_id"].optional is False
 
+    def test_featureset_optional_feature_flagged_in_ir(self) -> None:
+        # given a featureset whose features use Optional[T] and PEP-604 unions
+        @featureset
+        class SparseSignals:
+            user_id: int = feature(id=1)
+            last_score: Optional[float] = feature(id=2)
+            last_label: str | None = feature(id=3)
+
+        # when
+        ir = build_ir()
+
+        # then both nullable features are flagged optional with the base
+        # python_annotation; the non-nullable one stays non-optional.
+        fs = ir.featuresets[0]
+        features_by_name = {f.name: f for f in fs.features}
+        assert features_by_name["user_id"].optional is False
+        assert features_by_name["user_id"].python_annotation == "int"
+        assert features_by_name["last_score"].optional is True
+        assert features_by_name["last_score"].python_annotation == "float"
+        assert features_by_name["last_label"].optional is True
+        assert features_by_name["last_label"].python_annotation == "str"
+
     def test_datetime_feature_annotation_is_fully_qualified(self) -> None:
         # given
         @featureset

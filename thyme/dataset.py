@@ -1,8 +1,16 @@
 import inspect
 import json
+import types
 from copy import deepcopy
 from dataclasses import dataclass, fields
 from typing import Any, get_origin, get_args, Union, dataclass_transform
+
+
+def _is_union_origin(origin: Any) -> bool:
+    """Recognise both typing.Union (from Optional[T]) and types.UnionType
+    (from PEP-604 ``T | None`` syntax). They're distinct objects in Python
+    3.10+ and ``get_origin`` returns the matching one for each form."""
+    return origin is Union or origin is types.UnionType
 
 
 class Field:
@@ -21,10 +29,10 @@ def _type_to_string(annotation: Any) -> str:
     """Map Python type annotation to string representation."""
     if annotation is None:
         return "None"
-    # Handle Optional[X] / Union[X, None] -> unwrap to X for display
+    # Handle Optional[X] / X | None -> unwrap to X for display
     origin = get_origin(annotation)
     args = get_args(annotation)
-    if origin is Union:
+    if _is_union_origin(origin):
         non_none = [a for a in args if a is not type(None)]
         if len(non_none) == 1:
             return _type_to_string(non_none[0])
@@ -35,10 +43,10 @@ def _type_to_string(annotation: Any) -> str:
 
 
 def _is_optional(annotation: Any) -> bool:
-    """Check if annotation is Optional[X] (Union[X, None])."""
+    """Check if annotation is Optional[X] (Union[X, None]) or PEP-604 X | None."""
     origin = get_origin(annotation)
     args = get_args(annotation)
-    if origin is Union:
+    if _is_union_origin(origin):
         return type(None) in args
     return False
 

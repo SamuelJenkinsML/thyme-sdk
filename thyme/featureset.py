@@ -2,6 +2,8 @@ import inspect
 import textwrap
 from typing import Any, Callable, List, Optional
 
+from thyme.dataset import _is_optional, _type_to_string
+
 
 class FeatureDescriptor:
     """Descriptor for a feature in a featureset."""
@@ -58,13 +60,21 @@ def featureset(cls: type) -> type:
     for attr_name, attr_type in annotations.items():
         default = getattr(cls, attr_name, None)
         if isinstance(default, FeatureDescriptor):
-            type_name = attr_type.__name__ if hasattr(attr_type, "__name__") else str(attr_type)
+            # Mirror dataset.py's nullable handling: PEP-604 unions like
+            # `int | None` and `Optional[int]` get unwrapped to the base
+            # dtype, with an `optional` flag set on the schema entry so
+            # downstream stages (codegen IR, proto compiler) can re-attach
+            # the nullable wrapper.
+            type_name = _type_to_string(attr_type)
             default.dtype = type_name
-            features.append({
+            entry: dict[str, Any] = {
                 "name": attr_name,
                 "dtype": type_name,
                 "id": default.id,
-            })
+            }
+            if _is_optional(attr_type):
+                entry["optional"] = True
+            features.append(entry)
 
     # Validate feature IDs are positive and unique
     seen_ids = {}

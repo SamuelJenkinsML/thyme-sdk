@@ -238,6 +238,35 @@ class TestEmitPythonStubs:
         assert fields["id"] == "int"
         assert fields["note"] == "str | None"
 
+    def test_optional_featureset_feature_emits_union_none(
+        self, tmp_path: Path
+    ) -> None:
+        ir = CodegenIR(
+            featuresets=(
+                FeaturesetIR(
+                    name="SparseSignals",
+                    features=(
+                        FeatureIR(
+                            name="user_id", python_annotation="int", feature_id=1
+                        ),
+                        FeatureIR(
+                            name="last_score",
+                            python_annotation="float",
+                            feature_id=2,
+                            optional=True,
+                        ),
+                    ),
+                ),
+            ),
+            datasets=(),
+        )
+        emit_python_stubs(ir, tmp_path)
+        fields = _annotated_fields(
+            _class_defs(_parse(tmp_path / "sparse_signals.pyi"))["SparseSignals"]
+        )
+        assert fields["user_id"] == "int"
+        assert fields["last_score"] == "float | None"
+
 
 # ---------------------------------------------------------------------------
 # Negative paths
