@@ -1,8 +1,11 @@
 import inspect
 import textwrap
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, TypeVar, overload
 
 from thyme.dataset import Field, _is_optional, _type_to_string
+
+
+T = TypeVar("T")
 
 
 # Extractor kinds — must match crates/query-server/src/metadata.rs ExtractorKind
@@ -33,6 +36,10 @@ class FeatureDescriptor:
         self.dtype = dtype
 
 
+@overload
+def feature(*, ref: Field[T], default: T | None = None) -> T: ...
+@overload
+def feature() -> Any: ...
 def feature(
     *,
     ref: Field | None = None,
