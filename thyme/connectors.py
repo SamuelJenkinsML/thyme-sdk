@@ -1,14 +1,49 @@
 from datetime import datetime
 from typing import Any, Callable
 
+from thyme.env_defaults import env_default, env_default_int
+from thyme.secret import Secret
+
+
+def _credential_dict(value: str | Secret | None) -> dict:
+    """Encode a credential field as a tagged dict.
+
+    Literal strings and Secret refs share one shape so the wire format and
+    engine-side deserializer treat them uniformly. The engine resolves
+    `kind="env"|"arn"|"name"` at connector init; `kind="literal"` is used as-is.
+    """
+    if isinstance(value, Secret):
+        return {"kind": value.kind, "value": value.value}
+    return {"kind": "literal", "value": value or ""}
+
+
+def _require(connector_type: str, field: str, value: object, hint: str = "") -> str:
+    """Per-dataset fields can't fall back to env vars. Fail fast on missing."""
+    if value is None or value == "":
+        suffix = f" {hint}" if hint else ""
+        raise ValueError(
+            f"{connector_type} requires '{field}' (per-dataset, no env fallback).{suffix}"
+        )
+    return value  # type: ignore[return-value]
+
 
 class IcebergSource:
-    """Configuration for an Iceberg table source."""
+    """Configuration for an Iceberg table source.
 
-    def __init__(self, catalog: str, database: str, table: str):
-        self.catalog = catalog
-        self.database = database
-        self.table = table
+    Per-dataset (required): table.
+    Env-defaulted (THYME_ICEBERG_*): catalog, database.
+    """
+
+    def __init__(
+        self,
+        *,
+        table: str,
+        catalog: str | None = None,
+        database: str | None = None,
+    ):
+        self.table = _require("IcebergSource", "table", table)
+        self.catalog = catalog or env_default("iceberg", "catalog", default="")
+        self.database = database or env_default("iceberg", "database", default="")
 
     def to_dict(self) -> dict:
         return {
@@ -22,27 +57,33 @@ class IcebergSource:
 
 
 class PostgresSource:
-    """Configuration for a Postgres table source."""
+    """Configuration for a Postgres table source.
+
+    Per-dataset (required): table.
+    Env-defaulted (THYME_POSTGRES_*): host, port, database, user, schema, sslmode.
+    Secret-capable: password.
+    """
 
     def __init__(
         self,
-        host: str,
-        port: int,
-        database: str,
+        *,
         table: str,
-        user: str,
-        password: str,
-        schema: str = "public",
-        sslmode: str = "prefer",
+        host: str | None = None,
+        port: int | None = None,
+        database: str | None = None,
+        user: str | None = None,
+        password: str | Secret | None = None,
+        schema: str | None = None,
+        sslmode: str | None = None,
     ):
-        self.host = host
-        self.port = port
-        self.database = database
-        self.table = table
-        self.user = user
-        self.password = password
-        self.schema = schema
-        self.sslmode = sslmode
+        self.table = _require("PostgresSource", "table", table)
+        self.host = host or env_default("postgres", "host", default="localhost")
+        self.port = port if port is not None else env_default_int("postgres", "port", default=5432)
+        self.database = database or env_default("postgres", "database", default="")
+        self.user = user or env_default("postgres", "user", default="")
+        self.password: str | Secret = password if password is not None else env_default("postgres", "password", default="")
+        self.schema = schema or env_default("postgres", "schema", default="public")
+        self.sslmode = sslmode or env_default("postgres", "sslmode", default="prefer")
 
     def to_dict(self) -> dict:
         return {
@@ -53,7 +94,7 @@ class PostgresSource:
                 "database": self.database,
                 "table": self.table,
                 "user": self.user,
-                "password": self.password,
+                "password": _credential_dict(self.password),
                 "schema": self.schema,
                 "sslmode": self.sslmode,
             },
@@ -61,12 +102,22 @@ class PostgresSource:
 
 
 class S3JsonSource:
-    """Configuration for a JSON/JSONL files source stored in S3."""
+    """Configuration for a JSON/JSONL files source stored in S3.
 
-    def __init__(self, bucket: str, prefix: str = "", region: str = "us-east-1"):
-        self.bucket = bucket
+    Per-dataset (required): bucket. (`prefix` defaults to empty.)
+    Env-defaulted (THYME_S3_*): region.
+    """
+
+    def __init__(
+        self,
+        *,
+        bucket: str,
+        prefix: str = "",
+        region: str | None = None,
+    ):
+        self.bucket = _require("S3JsonSource", "bucket", bucket)
         self.prefix = prefix
-        self.region = region
+        self.region = region or env_default("s3", "region", default="us-east-1")
 
     def to_dict(self) -> dict:
         return {
@@ -80,42 +131,49 @@ class S3JsonSource:
 
 
 class KafkaSource:
-    """Configuration for a Kafka topic source."""
+    """Configuration for a Kafka topic source.
+
+    Per-dataset (required): topic.
+    Env-defaulted (THYME_KAFKA_*): brokers, security_protocol, sasl_mechanism,
+        sasl_username, format, group_id, schema_registry_url.
+    Secret-capable: sasl_password.
+    """
 
     _VALID_SECURITY_PROTOCOLS = {"PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"}
     _VALID_FORMATS = {"json", "avro", "protobuf"}
 
     def __init__(
         self,
-        brokers: str,
+        *,
         topic: str,
-        security_protocol: str = "PLAINTEXT",
-        sasl_mechanism: str = "",
-        sasl_username: str = "",
-        sasl_password: str = "",
-        format: str = "json",
-        group_id: str = "",
-        schema_registry_url: str = "",
+        brokers: str | None = None,
+        security_protocol: str | None = None,
+        sasl_mechanism: str | None = None,
+        sasl_username: str | None = None,
+        sasl_password: str | Secret | None = None,
+        format: str | None = None,
+        group_id: str | None = None,
+        schema_registry_url: str | None = None,
     ):
-        if security_protocol not in self._VALID_SECURITY_PROTOCOLS:
+        self.topic = _require("KafkaSource", "topic", topic)
+        self.brokers = brokers or env_default("kafka", "brokers", default="")
+        self.security_protocol = security_protocol or env_default("kafka", "security_protocol", default="PLAINTEXT")
+        if self.security_protocol not in self._VALID_SECURITY_PROTOCOLS:
             raise ValueError(
-                f"Invalid security_protocol '{security_protocol}'. "
+                f"Invalid security_protocol '{self.security_protocol}'. "
                 f"Must be one of {sorted(self._VALID_SECURITY_PROTOCOLS)}."
             )
-        if format not in self._VALID_FORMATS:
+        self.sasl_mechanism = sasl_mechanism or env_default("kafka", "sasl_mechanism", default="")
+        self.sasl_username = sasl_username or env_default("kafka", "sasl_username", default="")
+        self.sasl_password: str | Secret = sasl_password if sasl_password is not None else env_default("kafka", "sasl_password", default="")
+        self.format = format or env_default("kafka", "format", default="json")
+        if self.format not in self._VALID_FORMATS:
             raise ValueError(
-                f"Invalid format '{format}'. "
+                f"Invalid format '{self.format}'. "
                 f"Must be one of {sorted(self._VALID_FORMATS)}."
             )
-        self.brokers = brokers
-        self.topic = topic
-        self.security_protocol = security_protocol
-        self.sasl_mechanism = sasl_mechanism
-        self.sasl_username = sasl_username
-        self.sasl_password = sasl_password
-        self.format = format
-        self.group_id = group_id
-        self.schema_registry_url = schema_registry_url
+        self.group_id = group_id or env_default("kafka", "group_id", default="")
+        self.schema_registry_url = schema_registry_url or env_default("kafka", "schema_registry_url", default="")
 
     def to_dict(self) -> dict:
         return {
@@ -126,7 +184,7 @@ class KafkaSource:
                 "security_protocol": self.security_protocol,
                 "sasl_mechanism": self.sasl_mechanism,
                 "sasl_username": self.sasl_username,
-                "sasl_password": self.sasl_password,
+                "sasl_password": _credential_dict(self.sasl_password),
                 "format": self.format,
                 "group_id": self.group_id,
                 "schema_registry_url": self.schema_registry_url,
@@ -135,20 +193,27 @@ class KafkaSource:
 
 
 class KinesisSource:
-    """Configuration for an AWS Kinesis stream source."""
+    """Configuration for an AWS Kinesis stream source.
+
+    Per-dataset (required): stream_arn. Per-stream semantics: init_position, format.
+    Env-defaulted (THYME_KINESIS_*): region, endpoint_url.
+    Secret-capable: role_arn.
+    """
 
     _VALID_INIT_POSITIONS = {"latest", "trim_horizon"}
     _VALID_FORMATS = {"json"}
 
     def __init__(
         self,
+        *,
         stream_arn: str,
-        role_arn: str = "",
-        region: str = "us-east-1",
+        role_arn: str | Secret | None = None,
+        region: str | None = None,
         init_position: str = "latest",
         format: str = "json",
         endpoint_url: str | None = None,
     ):
+        self.stream_arn = _require("KinesisSource", "stream_arn", stream_arn)
         if init_position not in self._VALID_INIT_POSITIONS:
             try:
                 datetime.fromisoformat(init_position)
@@ -163,48 +228,53 @@ class KinesisSource:
                 f"Invalid format '{format}'. "
                 f"Must be one of {sorted(self._VALID_FORMATS)}."
             )
-        self.stream_arn = stream_arn
-        self.role_arn = role_arn
-        self.region = region
+        self.role_arn: str | Secret = role_arn if role_arn is not None else env_default("kinesis", "role_arn", default="")
+        self.region = region or env_default("kinesis", "region", default="us-east-1")
         self.init_position = init_position
         self.format = format
-        self.endpoint_url = endpoint_url
+        self.endpoint_url = endpoint_url if endpoint_url is not None else env_default("kinesis", "endpoint_url", default=None)
 
     def to_dict(self) -> dict:
-        config = {
+        config: dict[str, Any] = {
             "stream_arn": self.stream_arn,
-            "role_arn": self.role_arn,
+            "role_arn": _credential_dict(self.role_arn),
             "region": self.region,
             "init_position": self.init_position,
             "format": self.format,
         }
-        if self.endpoint_url is not None:
+        if self.endpoint_url:
             config["endpoint_url"] = self.endpoint_url
         return {"connector_type": "kinesis", "config": config}
 
 
 class SnowflakeSource:
-    """Configuration for a Snowflake table source."""
+    """Configuration for a Snowflake table source.
+
+    Per-dataset (required): table.
+    Env-defaulted (THYME_SNOWFLAKE_*): account, database, warehouse, role, user, schema.
+    Secret-capable: password.
+    """
 
     def __init__(
         self,
-        account: str,
-        database: str,
-        warehouse: str,
+        *,
         table: str,
-        user: str,
-        password: str,
-        schema: str = "PUBLIC",
-        role: str = "",
+        account: str | None = None,
+        database: str | None = None,
+        warehouse: str | None = None,
+        user: str | None = None,
+        password: str | Secret | None = None,
+        schema: str | None = None,
+        role: str | None = None,
     ):
-        self.account = account
-        self.database = database
-        self.schema = schema
-        self.warehouse = warehouse
-        self.role = role
-        self.table = table
-        self.user = user
-        self.password = password
+        self.table = _require("SnowflakeSource", "table", table)
+        self.account = account or env_default("snowflake", "account", default="")
+        self.database = database or env_default("snowflake", "database", default="")
+        self.warehouse = warehouse or env_default("snowflake", "warehouse", default="")
+        self.user = user or env_default("snowflake", "user", default="")
+        self.password: str | Secret = password if password is not None else env_default("snowflake", "password", default="")
+        self.schema = schema or env_default("snowflake", "schema", default="PUBLIC")
+        self.role = role or env_default("snowflake", "role", default="")
 
     def to_dict(self) -> dict:
         return {
@@ -217,25 +287,31 @@ class SnowflakeSource:
                 "role": self.role,
                 "table": self.table,
                 "user": self.user,
-                "password": self.password,
+                "password": _credential_dict(self.password),
             },
         }
 
 
 class BigQuerySource:
-    """Configuration for a BigQuery table source."""
+    """Configuration for a BigQuery table source.
+
+    Per-dataset (required): dataset_id, table.
+    Env-defaulted (THYME_BIGQUERY_*): project_id.
+    Secret-capable: credentials_json.
+    """
 
     def __init__(
         self,
-        project_id: str,
+        *,
         dataset_id: str,
         table: str,
-        credentials_json: str = "",
+        project_id: str | None = None,
+        credentials_json: str | Secret | None = None,
     ):
-        self.project_id = project_id
-        self.dataset_id = dataset_id
-        self.table = table
-        self.credentials_json = credentials_json
+        self.dataset_id = _require("BigQuerySource", "dataset_id", dataset_id)
+        self.table = _require("BigQuerySource", "table", table)
+        self.project_id = project_id or env_default("bigquery", "project_id", default="")
+        self.credentials_json: str | Secret = credentials_json if credentials_json is not None else env_default("bigquery", "credentials_json", default="")
 
     def to_dict(self) -> dict:
         return {
@@ -244,7 +320,7 @@ class BigQuerySource:
                 "project_id": self.project_id,
                 "dataset_id": self.dataset_id,
                 "table": self.table,
-                "credentials_json": self.credentials_json,
+                "credentials_json": _credential_dict(self.credentials_json),
             },
         }
 
