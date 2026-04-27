@@ -3,7 +3,19 @@ import json
 import types
 from copy import deepcopy
 from dataclasses import dataclass, fields
-from typing import Any, get_origin, get_args, Union, dataclass_transform
+from typing import (
+    Any,
+    Generic,
+    TypeVar,
+    Union,
+    dataclass_transform,
+    get_args,
+    get_origin,
+    overload,
+)
+
+
+T = TypeVar("T")
 
 
 def _is_union_origin(origin: Any) -> bool:
@@ -13,19 +25,43 @@ def _is_union_origin(origin: Any) -> bool:
     return origin is Union or origin is types.UnionType
 
 
-class Field:
-    """Descriptor for dataset fields. Tracks key/timestamp metadata and
-    (post-decoration) the field's name, parent dataset name, and dtype so it
-    can be used as a typed reference at featureset-definition time, e.g.
-    ``feature(ref=UserProfile.loyalty_tier)``."""
+class Field(Generic[T]):
+    """Typed descriptor for dataset fields.
+
+    Annotated as ``name: Field[T]`` on a ``@dataset`` class, this gives
+    Pyright/Pylance the SQLAlchemy-2.0–style dual view that matches the
+    runtime: ``MyDataset.field`` resolves to a ``Field[T]`` reference
+    (usable as ``feature(ref=...)``), while ``instance.field`` resolves to
+    ``T``. The ``__set__`` parameter type ``T`` triggers PEP 681's
+    descriptor-field rule so ``@dataclass_transform`` still infers ``T`` as
+    the dataclass field's type for ``__init__``.
+    """
 
     def __init__(self, key: bool = False, timestamp: bool = False):
         self.key = key
         self.timestamp = timestamp
-        # Populated by the @dataset decorator after class construction.
         self.name: str | None = None
         self.dataset_name: str | None = None
         self.dtype: Any = None
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+        self.dataset_name = owner.__name__
+
+    @overload
+    def __get__(self, obj: None, objtype: type | None = None) -> "Field[T]": ...
+    @overload
+    def __get__(self, obj: object, objtype: type | None = None) -> T: ...
+    def __get__(self, obj: Any, objtype: type | None = None) -> Any:
+        if obj is None:
+            return self
+        try:
+            return obj.__dict__[self.name]
+        except KeyError:
+            raise AttributeError(self.name) from None
+
+    def __set__(self, obj: Any, value: T) -> None:
+        obj.__dict__[self.name] = value
 
     def fqn(self) -> str:
         if self.name is None or self.dataset_name is None:
@@ -44,10 +80,20 @@ def field(key: bool = False, timestamp: bool = False) -> Any:
     return Field(key=key, timestamp=timestamp)
 
 
+def _unwrap_field(annotation: Any) -> Any:
+    """Unwrap ``Field[T]`` to ``T``. Pass other annotations through."""
+    if get_origin(annotation) is Field:
+        args = get_args(annotation)
+        if len(args) == 1:
+            return args[0]
+    return annotation
+
+
 def _type_to_string(annotation: Any) -> str:
     """Map Python type annotation to string representation."""
     if annotation is None:
         return "None"
+    annotation = _unwrap_field(annotation)
     # Handle Optional[X] / X | None -> unwrap to X for display
     origin = get_origin(annotation)
     args = get_args(annotation)
@@ -62,7 +108,9 @@ def _type_to_string(annotation: Any) -> str:
 
 
 def _is_optional(annotation: Any) -> bool:
-    """Check if annotation is Optional[X] (Union[X, None]) or PEP-604 X | None."""
+    """Check if annotation is Optional[X] (Union[X, None]) or PEP-604 X | None.
+    Unwraps ``Field[T]`` first so ``Field[int | None]`` is also recognized."""
+    annotation = _unwrap_field(annotation)
     origin = get_origin(annotation)
     args = get_args(annotation)
     if _is_union_origin(origin):
@@ -142,22 +190,15 @@ def _build_schema(cls: type, index: bool, version: int) -> dict:
 
 
 def _bind_field_references(cls: type) -> None:
-    """Populate name/dataset_name/dtype on each Field descriptor and bind them
-    as class attributes so ``UserProfile.loyalty_tier`` returns the Field at
-    runtime (for use as ``feature(ref=...)`` arguments).
-
-    Runtime tradeoff: post-decoration ``UserProfile.loyalty_tier`` resolves to
-    a Field, not the annotated type. This is intentional — dataset field
-    references on the class are used purely as routing handles for the
-    featureset, not as values to read.
-    """
+    """Populate ``dtype`` on each Field descriptor based on the resolved
+    annotation. ``name`` and ``dataset_name`` are set by ``Field.__set_name__``
+    at class-body execution time. The descriptor itself stays as the class
+    attribute via the dataclass default — its ``__get__(None, cls)`` overload
+    returns the Field for class-level access."""
     for f in fields(cls):
         default = f.default
         if isinstance(default, Field):
-            default.name = f.name
-            default.dataset_name = cls.__name__
-            default.dtype = f.type
-            setattr(cls, f.name, default)
+            default.dtype = _unwrap_field(f.type)
 
 
 def _discover_expectations(cls: type) -> None:
