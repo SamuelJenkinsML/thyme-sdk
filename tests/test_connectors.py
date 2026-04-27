@@ -166,7 +166,7 @@ def test_postgres_source_to_dict_config_fields():
     assert cfg["database"] == "sales"
     assert cfg["table"] == "events"
     assert cfg["user"] == "reader"
-    assert cfg["password"] == "pw"
+    assert cfg["password"] == {"kind": "literal", "value": "pw"}
     assert cfg["schema"] == "public"
 
 
@@ -304,7 +304,7 @@ def test_kafka_source_to_dict_config_fields():
     assert cfg["security_protocol"] == "SASL_SSL"
     assert cfg["sasl_mechanism"] == "PLAIN"
     assert cfg["sasl_username"] == "user"
-    assert cfg["sasl_password"] == "pass"
+    assert cfg["sasl_password"] == {"kind": "literal", "value": "pass"}
     assert cfg["format"] == "avro"
     assert cfg["group_id"] == "my-group"
     assert cfg["schema_registry_url"] == "http://registry:8081"
@@ -339,10 +339,10 @@ def test_kafka_source_default_sasl_fields_are_empty():
     # When: calling to_dict
     d = src.to_dict()
 
-    # Then: SASL fields default to empty string
+    # Then: SASL fields default to empty string (sasl_password is a SecretRef-shaped dict)
     assert d["config"]["sasl_mechanism"] == ""
     assert d["config"]["sasl_username"] == ""
-    assert d["config"]["sasl_password"] == ""
+    assert d["config"]["sasl_password"] == {"kind": "literal", "value": ""}
 
 
 def test_kafka_source_default_group_id_is_empty():
@@ -429,7 +429,7 @@ def test_kinesis_source_to_dict_config_fields():
     # Then: config contains all fields with correct values
     cfg = d["config"]
     assert cfg["stream_arn"] == "arn:aws:kinesis:us-east-1:123456789:stream/events"
-    assert cfg["role_arn"] == "arn:aws:iam::123456789:role/kinesis-reader"
+    assert cfg["role_arn"] == {"kind": "literal", "value": "arn:aws:iam::123456789:role/kinesis-reader"}
     assert cfg["region"] == "eu-west-1"
     assert cfg["init_position"] == "trim_horizon"
     assert cfg["format"] == "json"
@@ -475,8 +475,8 @@ def test_kinesis_source_default_role_arn_is_empty():
     # When: calling to_dict
     d = src.to_dict()
 
-    # Then: role_arn defaults to ""
-    assert d["config"]["role_arn"] == ""
+    # Then: role_arn defaults to an empty literal SecretRef
+    assert d["config"]["role_arn"] == {"kind": "literal", "value": ""}
 
 
 def test_kinesis_source_init_position_trim_horizon():
@@ -628,7 +628,7 @@ def test_snowflake_source_to_dict_config_fields():
     assert cfg["role"] == "loader"
     assert cfg["table"] == "events"
     assert cfg["user"] == "etl_user"
-    assert cfg["password"] == "pw"
+    assert cfg["password"] == {"kind": "literal", "value": "pw"}
 
 
 def test_snowflake_source_default_schema_is_public():
@@ -708,7 +708,7 @@ def test_bigquery_source_to_dict_config_fields():
     assert cfg["project_id"] == "my-project"
     assert cfg["dataset_id"] == "raw"
     assert cfg["table"] == "clicks"
-    assert cfg["credentials_json"] == '{"type": "service_account"}'
+    assert cfg["credentials_json"] == {"kind": "literal", "value": '{"type": "service_account"}'}
 
 
 def test_bigquery_source_default_credentials_json_is_empty():
@@ -720,8 +720,8 @@ def test_bigquery_source_default_credentials_json_is_empty():
     # When: calling to_dict
     d = src.to_dict()
 
-    # Then: credentials_json defaults to ""
-    assert d["config"]["credentials_json"] == ""
+    # Then: credentials_json defaults to an empty literal SecretRef
+    assert d["config"]["credentials_json"] == {"kind": "literal", "value": ""}
 
 
 def test_bigquery_source_registers_with_source_decorator():

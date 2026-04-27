@@ -24,6 +24,31 @@ def _type_str_to_proto(type_str: str) -> schema_pb2.DataType:
     return TYPE_MAP.get(type_str, schema_pb2.DataType(string_type=schema_pb2.StringType()))
 
 
+_SECRET_KIND_MAP = {
+    "literal": connector_pb2.SecretRef.LITERAL,
+    "env": connector_pb2.SecretRef.ENV,
+    "arn": connector_pb2.SecretRef.ARN,
+    "name": connector_pb2.SecretRef.NAME,
+}
+
+
+def _make_secret_ref(value: object) -> connector_pb2.SecretRef:
+    """Convert a credential dict (`{"kind": ..., "value": ...}`) to a SecretRef.
+
+    Connector `to_dict()` always emits the tagged dict shape for credential
+    fields; plain strings are accepted as a courtesy for legacy callers and
+    treated as literals.
+    """
+    if isinstance(value, dict):
+        kind = value.get("kind", "literal")
+        v = value.get("value", "")
+    else:
+        kind = "literal"
+        v = value or ""
+    proto_kind = _SECRET_KIND_MAP.get(kind, connector_pb2.SecretRef.LITERAL)
+    return connector_pb2.SecretRef(kind=proto_kind, value=v)
+
+
 def _make_pycode(source_code: str, entry_point: str = "") -> pycode_pb2.PyCode:
     return pycode_pb2.PyCode(
         entry_point=entry_point,
@@ -299,7 +324,7 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             database=config.get("database", ""),
             table=config.get("table", ""),
             user=config.get("user", ""),
-            password=config.get("password", ""),
+            password=_make_secret_ref(config.get("password", "")),
             schema=config.get("schema", "public"),
             sslmode=config.get("sslmode", "prefer"),
         ))
@@ -316,7 +341,7 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             security_protocol=config.get("security_protocol", "PLAINTEXT"),
             sasl_mechanism=config.get("sasl_mechanism", ""),
             sasl_username=config.get("sasl_username", ""),
-            sasl_password=config.get("sasl_password", ""),
+            sasl_password=_make_secret_ref(config.get("sasl_password", "")),
             format=config.get("format", "json"),
             group_id=config.get("group_id", ""),
             schema_registry_url=config.get("schema_registry_url", ""),
@@ -324,7 +349,7 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
     elif connector_type == "kinesis":
         source.kinesis.CopyFrom(connector_pb2.KinesisSource(
             stream_arn=config.get("stream_arn", ""),
-            role_arn=config.get("role_arn", ""),
+            role_arn=_make_secret_ref(config.get("role_arn", "")),
             region=config.get("region", "us-east-1"),
             init_position=config.get("init_position", "latest"),
             format=config.get("format", "json"),
@@ -339,14 +364,14 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             role=config.get("role", ""),
             table=config.get("table", ""),
             user=config.get("user", ""),
-            password=config.get("password", ""),
+            password=_make_secret_ref(config.get("password", "")),
         ))
     elif connector_type == "bigquery":
         source.bigquery.CopyFrom(connector_pb2.BigQuerySource(
             project_id=config.get("project_id", ""),
             dataset_id=config.get("dataset_id", ""),
             table=config.get("table", ""),
-            credentials_json=config.get("credentials_json", ""),
+            credentials_json=_make_secret_ref(config.get("credentials_json", "")),
         ))
     return source
 

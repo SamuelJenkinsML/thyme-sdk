@@ -274,7 +274,7 @@ def test_compile_source_kafka():
     assert proto.kafka.security_protocol == "SASL_SSL"
     assert proto.kafka.sasl_mechanism == "PLAIN"
     assert proto.kafka.sasl_username == "user"
-    assert proto.kafka.sasl_password == "pass"
+    assert proto.kafka.sasl_password.value == "pass"
     assert proto.kafka.format == "json"
     assert proto.kafka.group_id == "my-group"
     assert proto.kafka.schema_registry_url == "http://registry:8081"
@@ -308,7 +308,7 @@ def test_compile_source_kinesis():
     assert proto.max_lateness == "5m"
     assert proto.cdc == "append"
     assert proto.kinesis.stream_arn == "arn:aws:kinesis:us-east-1:123456789:stream/clicks"
-    assert proto.kinesis.role_arn == "arn:aws:iam::123456789:role/kinesis-reader"
+    assert proto.kinesis.role_arn.value == "arn:aws:iam::123456789:role/kinesis-reader"
     assert proto.kinesis.region == "us-east-1"
     assert proto.kinesis.init_position == "trim_horizon"
     assert proto.kinesis.format == "json"
@@ -331,7 +331,7 @@ def test_compile_source_kinesis_defaults():
     assert proto.kinesis.region == "us-east-1"
     assert proto.kinesis.init_position == "latest"
     assert proto.kinesis.format == "json"
-    assert proto.kinesis.role_arn == ""
+    assert proto.kinesis.role_arn.value == ""
 
 
 def test_compile_source_snowflake():
@@ -371,7 +371,7 @@ def test_compile_source_snowflake():
     assert proto.snowflake.role == "loader"
     assert proto.snowflake.table == "orders"
     assert proto.snowflake.user == "etl_user"
-    assert proto.snowflake.password == "secret"
+    assert proto.snowflake.password.value == "secret"
 
 
 def test_compile_source_bigquery():
@@ -402,7 +402,7 @@ def test_compile_source_bigquery():
     assert proto.bigquery.project_id == "my-project"
     assert proto.bigquery.dataset_id == "raw"
     assert proto.bigquery.table == "clicks"
-    assert proto.bigquery.credentials_json == '{"type": "service_account"}'
+    assert proto.bigquery.credentials_json.value == '{"type": "service_account"}'
 
 
 def test_compile_dataset_with_expectations():

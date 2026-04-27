@@ -1,9 +1,28 @@
+from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class SecretRef(_message.Message):
+    __slots__ = ("kind", "value")
+    class Kind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        LITERAL: _ClassVar[SecretRef.Kind]
+        ENV: _ClassVar[SecretRef.Kind]
+        ARN: _ClassVar[SecretRef.Kind]
+        NAME: _ClassVar[SecretRef.Kind]
+    LITERAL: SecretRef.Kind
+    ENV: SecretRef.Kind
+    ARN: SecretRef.Kind
+    NAME: SecretRef.Kind
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    kind: SecretRef.Kind
+    value: str
+    def __init__(self, kind: _Optional[_Union[SecretRef.Kind, str]] = ..., value: _Optional[str] = ...) -> None: ...
 
 class IcebergSource(_message.Message):
     __slots__ = ("catalog", "database", "table")
@@ -30,10 +49,10 @@ class PostgresSource(_message.Message):
     database: str
     table: str
     user: str
-    password: str
+    password: SecretRef
     schema: str
     sslmode: str
-    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., database: _Optional[str] = ..., table: _Optional[str] = ..., user: _Optional[str] = ..., password: _Optional[str] = ..., schema: _Optional[str] = ..., sslmode: _Optional[str] = ...) -> None: ...
+    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., database: _Optional[str] = ..., table: _Optional[str] = ..., user: _Optional[str] = ..., password: _Optional[_Union[SecretRef, _Mapping]] = ..., schema: _Optional[str] = ..., sslmode: _Optional[str] = ...) -> None: ...
 
 class S3JsonSource(_message.Message):
     __slots__ = ("bucket", "prefix", "region")
@@ -61,11 +80,11 @@ class KafkaSource(_message.Message):
     security_protocol: str
     sasl_mechanism: str
     sasl_username: str
-    sasl_password: str
+    sasl_password: SecretRef
     format: str
     group_id: str
     schema_registry_url: str
-    def __init__(self, brokers: _Optional[str] = ..., topic: _Optional[str] = ..., security_protocol: _Optional[str] = ..., sasl_mechanism: _Optional[str] = ..., sasl_username: _Optional[str] = ..., sasl_password: _Optional[str] = ..., format: _Optional[str] = ..., group_id: _Optional[str] = ..., schema_registry_url: _Optional[str] = ...) -> None: ...
+    def __init__(self, brokers: _Optional[str] = ..., topic: _Optional[str] = ..., security_protocol: _Optional[str] = ..., sasl_mechanism: _Optional[str] = ..., sasl_username: _Optional[str] = ..., sasl_password: _Optional[_Union[SecretRef, _Mapping]] = ..., format: _Optional[str] = ..., group_id: _Optional[str] = ..., schema_registry_url: _Optional[str] = ...) -> None: ...
 
 class KinesisSource(_message.Message):
     __slots__ = ("stream_arn", "role_arn", "region", "init_position", "format", "endpoint_url")
@@ -76,12 +95,12 @@ class KinesisSource(_message.Message):
     FORMAT_FIELD_NUMBER: _ClassVar[int]
     ENDPOINT_URL_FIELD_NUMBER: _ClassVar[int]
     stream_arn: str
-    role_arn: str
+    role_arn: SecretRef
     region: str
     init_position: str
     format: str
     endpoint_url: str
-    def __init__(self, stream_arn: _Optional[str] = ..., role_arn: _Optional[str] = ..., region: _Optional[str] = ..., init_position: _Optional[str] = ..., format: _Optional[str] = ..., endpoint_url: _Optional[str] = ...) -> None: ...
+    def __init__(self, stream_arn: _Optional[str] = ..., role_arn: _Optional[_Union[SecretRef, _Mapping]] = ..., region: _Optional[str] = ..., init_position: _Optional[str] = ..., format: _Optional[str] = ..., endpoint_url: _Optional[str] = ...) -> None: ...
 
 class SnowflakeSource(_message.Message):
     __slots__ = ("account", "database", "schema", "warehouse", "role", "table", "user", "password")
@@ -100,8 +119,8 @@ class SnowflakeSource(_message.Message):
     role: str
     table: str
     user: str
-    password: str
-    def __init__(self, account: _Optional[str] = ..., database: _Optional[str] = ..., schema: _Optional[str] = ..., warehouse: _Optional[str] = ..., role: _Optional[str] = ..., table: _Optional[str] = ..., user: _Optional[str] = ..., password: _Optional[str] = ...) -> None: ...
+    password: SecretRef
+    def __init__(self, account: _Optional[str] = ..., database: _Optional[str] = ..., schema: _Optional[str] = ..., warehouse: _Optional[str] = ..., role: _Optional[str] = ..., table: _Optional[str] = ..., user: _Optional[str] = ..., password: _Optional[_Union[SecretRef, _Mapping]] = ...) -> None: ...
 
 class BigQuerySource(_message.Message):
     __slots__ = ("project_id", "dataset_id", "table", "credentials_json")
@@ -112,8 +131,8 @@ class BigQuerySource(_message.Message):
     project_id: str
     dataset_id: str
     table: str
-    credentials_json: str
-    def __init__(self, project_id: _Optional[str] = ..., dataset_id: _Optional[str] = ..., table: _Optional[str] = ..., credentials_json: _Optional[str] = ...) -> None: ...
+    credentials_json: SecretRef
+    def __init__(self, project_id: _Optional[str] = ..., dataset_id: _Optional[str] = ..., table: _Optional[str] = ..., credentials_json: _Optional[_Union[SecretRef, _Mapping]] = ...) -> None: ...
 
 class Source(_message.Message):
     __slots__ = ("dataset", "cursor", "every", "max_lateness", "cdc", "iceberg", "postgres", "s3json", "kafka", "kinesis", "snowflake", "bigquery")
