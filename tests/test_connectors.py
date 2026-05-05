@@ -12,6 +12,7 @@ from thyme.connectors import (
     clear_source_registry,
     get_registered_sources,
 )
+from thyme.connectors_base import SourceConnector
 
 
 @pytest.fixture(autouse=True)
@@ -741,3 +742,82 @@ def test_bigquery_source_registers_with_source_decorator():
     assert "BigQueryDataset" in sources
     assert sources["BigQueryDataset"]["connector_type"] == "bigquery"
     assert sources["BigQueryDataset"]["cursor"] == "event_time"
+
+
+# ---------------------------------------------------------------------------
+# SourceConnector Protocol tests (TH-023)
+# ---------------------------------------------------------------------------
+
+_ALL_SOURCE_INSTANCES = [
+    pytest.param(IcebergSource(table="t"), id="iceberg"),
+    pytest.param(PostgresSource(table="t"), id="postgres"),
+    pytest.param(S3JsonSource(bucket="b"), id="s3json"),
+    pytest.param(KafkaSource(topic="t"), id="kafka"),
+    pytest.param(KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:1:stream/s"), id="kinesis"),
+    pytest.param(SnowflakeSource(table="t"), id="snowflake"),
+    pytest.param(BigQuerySource(dataset_id="d", table="t"), id="bigquery"),
+]
+
+
+@pytest.mark.parametrize("instance", _ALL_SOURCE_INSTANCES)
+def test_all_sources_satisfy_protocol(instance):
+    # Given: any built-in source connector instance
+    # When/Then: it structurally matches the SourceConnector protocol
+    assert isinstance(instance, SourceConnector)
+
+
+def test_streaming_flag_kafka_is_true():
+    # Given: KafkaSource is a streaming connector
+    # When/Then: the class-level is_streaming flag is True
+    assert KafkaSource.is_streaming is True
+
+
+def test_streaming_flag_kinesis_is_true():
+    # Given: KinesisSource is a streaming connector
+    # When/Then: the class-level is_streaming flag is True
+    assert KinesisSource.is_streaming is True
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [IcebergSource, PostgresSource, S3JsonSource, SnowflakeSource, BigQuerySource],
+)
+def test_streaming_flag_batch_sources_is_false(cls):
+    # Given: a batch source class
+    # When/Then: is_streaming defaults to False
+    assert cls.is_streaming is False
+
+
+@pytest.mark.parametrize("instance", _ALL_SOURCE_INSTANCES)
+def test_connector_type_classvar_matches_to_dict(instance):
+    # Given: any source instance
+    # When: comparing the ClassVar to the wire payload
+    # Then: they agree
+    assert type(instance).connector_type == instance.to_dict()["connector_type"]
+
+
+def test_source_decorator_uses_classvar_for_streaming_check():
+    # Given: a non-builtin connector class flagged as streaming via ClassVar
+    class FakeStreamSource:
+        connector_type = "fake_stream"
+        is_streaming = True
+
+        def to_dict(self):
+            return {"connector_type": self.connector_type, "config": {}}
+
+    # When/Then: @source still rejects cursor based on the ClassVar (no string set)
+    with pytest.raises(ValueError, match="cursor"):
+        @source(FakeStreamSource(), cursor="ts")
+        class BadFake:
+            pass
+
+
+def test_source_decorator_rejects_non_connector_object():
+    # Given: an object that does not satisfy the SourceConnector protocol
+    not_a_connector = object()
+
+    # When/Then: @source raises TypeError per TH-023 acceptance criteria
+    with pytest.raises(TypeError):
+        @source(not_a_connector)
+        class BadDataset:
+            pass

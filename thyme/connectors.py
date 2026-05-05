@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
+from thyme.connectors_base import SourceConnector
 from thyme.env_defaults import env_default, env_default_int
 from thyme.secret import Secret
 
@@ -34,6 +35,9 @@ class IcebergSource:
     Env-defaulted (THYME_ICEBERG_*): catalog, database.
     """
 
+    connector_type: ClassVar[str] = "iceberg"
+    is_streaming: ClassVar[bool] = False
+
     def __init__(
         self,
         *,
@@ -47,7 +51,7 @@ class IcebergSource:
 
     def to_dict(self) -> dict:
         return {
-            "connector_type": "iceberg",
+            "connector_type": self.connector_type,
             "config": {
                 "catalog": self.catalog,
                 "database": self.database,
@@ -63,6 +67,9 @@ class PostgresSource:
     Env-defaulted (THYME_POSTGRES_*): host, port, database, user, schema, sslmode.
     Secret-capable: password.
     """
+
+    connector_type: ClassVar[str] = "postgres"
+    is_streaming: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -87,7 +94,7 @@ class PostgresSource:
 
     def to_dict(self) -> dict:
         return {
-            "connector_type": "postgres",
+            "connector_type": self.connector_type,
             "config": {
                 "host": self.host,
                 "port": self.port,
@@ -108,6 +115,9 @@ class S3JsonSource:
     Env-defaulted (THYME_S3_*): region.
     """
 
+    connector_type: ClassVar[str] = "s3json"
+    is_streaming: ClassVar[bool] = False
+
     def __init__(
         self,
         *,
@@ -121,7 +131,7 @@ class S3JsonSource:
 
     def to_dict(self) -> dict:
         return {
-            "connector_type": "s3json",
+            "connector_type": self.connector_type,
             "config": {
                 "bucket": self.bucket,
                 "prefix": self.prefix,
@@ -138,6 +148,9 @@ class KafkaSource:
         sasl_username, format, group_id, schema_registry_url.
     Secret-capable: sasl_password.
     """
+
+    connector_type: ClassVar[str] = "kafka"
+    is_streaming: ClassVar[bool] = True
 
     _VALID_SECURITY_PROTOCOLS = {"PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"}
     _VALID_FORMATS = {"json", "avro", "protobuf"}
@@ -177,7 +190,7 @@ class KafkaSource:
 
     def to_dict(self) -> dict:
         return {
-            "connector_type": "kafka",
+            "connector_type": self.connector_type,
             "config": {
                 "brokers": self.brokers,
                 "topic": self.topic,
@@ -199,6 +212,9 @@ class KinesisSource:
     Env-defaulted (THYME_KINESIS_*): region, endpoint_url.
     Secret-capable: role_arn.
     """
+
+    connector_type: ClassVar[str] = "kinesis"
+    is_streaming: ClassVar[bool] = True
 
     _VALID_INIT_POSITIONS = {"latest", "trim_horizon"}
     _VALID_FORMATS = {"json"}
@@ -244,7 +260,7 @@ class KinesisSource:
         }
         if self.endpoint_url:
             config["endpoint_url"] = self.endpoint_url
-        return {"connector_type": "kinesis", "config": config}
+        return {"connector_type": self.connector_type, "config": config}
 
 
 class SnowflakeSource:
@@ -254,6 +270,9 @@ class SnowflakeSource:
     Env-defaulted (THYME_SNOWFLAKE_*): account, database, warehouse, role, user, schema.
     Secret-capable: password.
     """
+
+    connector_type: ClassVar[str] = "snowflake"
+    is_streaming: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -278,7 +297,7 @@ class SnowflakeSource:
 
     def to_dict(self) -> dict:
         return {
-            "connector_type": "snowflake",
+            "connector_type": self.connector_type,
             "config": {
                 "account": self.account,
                 "database": self.database,
@@ -300,6 +319,9 @@ class BigQuerySource:
     Secret-capable: credentials_json.
     """
 
+    connector_type: ClassVar[str] = "bigquery"
+    is_streaming: ClassVar[bool] = False
+
     def __init__(
         self,
         *,
@@ -315,7 +337,7 @@ class BigQuerySource:
 
     def to_dict(self) -> dict:
         return {
-            "connector_type": "bigquery",
+            "connector_type": self.connector_type,
             "config": {
                 "project_id": self.project_id,
                 "dataset_id": self.dataset_id,
@@ -338,7 +360,7 @@ def get_registered_sources() -> dict[str, dict]:
 
 
 def source(
-    connector: Any,
+    connector: SourceConnector,
     cursor: str = "",
     every: str = "",
     max_lateness: str = "",
@@ -355,23 +377,27 @@ def source(
             discarded. This sets the watermark for all downstream pipelines.
     """
 
+    if not isinstance(connector, SourceConnector):
+        raise TypeError(
+            f"@source expected a SourceConnector (declares connector_type, "
+            f"is_streaming, to_dict()); got {type(connector).__name__}."
+        )
+
     _VALID_CDC_MODES = {"append", "debezium", "upsert"}
     if cdc not in _VALID_CDC_MODES:
         raise ValueError(
             f"Invalid cdc mode '{cdc}'. Must be one of {sorted(_VALID_CDC_MODES)}."
         )
 
-    _STREAMING_CONNECTORS = {"kafka", "kinesis"}
-    connector_type = connector.to_dict().get("connector_type", "")
-    if connector_type in _STREAMING_CONNECTORS:
+    if connector.is_streaming:
         if cursor:
             raise ValueError(
-                f"Streaming source '{connector_type}' does not support 'cursor'. "
+                f"Streaming source '{connector.connector_type}' does not support 'cursor'. "
                 f"Remove the cursor parameter."
             )
         if every:
             raise ValueError(
-                f"Streaming source '{connector_type}' does not support 'every'. "
+                f"Streaming source '{connector.connector_type}' does not support 'every'. "
                 f"Remove the every parameter."
             )
 
