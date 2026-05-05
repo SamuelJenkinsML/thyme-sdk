@@ -1,8 +1,8 @@
 # Thyme SDK
 
-Real-time ML features. Defined in Python. Computed in Rust.
+Real-time ML features. Defined in Python.
 
-Thyme is a streaming feature platform that eliminates training/serving skew. You define features once in Python; Thyme compiles them to a continuously-running Rust engine that keeps values fresh as events arrive.
+Thyme is a streaming feature platform that eliminates training/serving skew. You define features once in Python; Thyme keeps their values fresh as new events arrive.
 
 ## The Problem
 
@@ -20,14 +20,14 @@ This is **training/serving skew** — the most common silent killer of productio
 
 You write a feature once in Python. Thyme compiles it to:
 
-- **Streaming aggregation** — a continuously-running Rust process that keeps values fresh within milliseconds of new events arriving
+- **Streaming aggregation** — a continuously-running process that keeps values fresh within milliseconds of new events arriving
 - **Point-in-time lookup** — the same logic applied to historical data at any past timestamp for offline training
 
 There is one source of truth. The online and offline paths are guaranteed consistent.
 
 ### Declarative, not operational
 
-You declare *what* a feature is, not *how* to run it. You don't manage Kafka consumers, RocksDB compaction, or checkpoint recovery. Thyme handles the infrastructure; you own the feature logic.
+You declare *what* a feature is, not *how* to run it. You don't manage stream consumers, state storage, or checkpoint recovery. Thyme handles the infrastructure; you own the feature logic.
 
 ## Business Benefits
 
@@ -36,22 +36,20 @@ You declare *what* a feature is, not *how* to run it. You don't manage Kafka con
 - **Smaller infrastructure footprint** — One system replaces the batch ETL, the streaming job, and the custom serving layer.
 - **Safe schema evolution** — Features have integer IDs. You can add, rename, and version features without breaking downstream consumers.
 
-## Architecture Overview
+## How the SDK Fits In
+
+The Python SDK in this repo is the authoring surface for Thyme. You use it to define datasets, pipelines, featuresets, and sources, and to commit those definitions to a separately-deployed Thyme service that compiles them into continuously-running streaming jobs and serves the resulting feature values.
 
 ```
-Python SDK          →  Definition Service  →  Engine             →  Query Server
-(this repo)            (Rust, port 8080)      (Rust, streaming)     (Rust, port 8081)
-                            |                      |
-                         Postgres              RocksDB state
-                         Kafka topics          (keyed by entity + timestamp)
+Python SDK (this repo)  ──commit──▶  Thyme service  ──serves──▶  your application
 ```
 
-| Layer | Role |
-|-------|------|
-| **Python SDK** | Declarative API for defining datasets, pipelines, featuresets, and sources. The `thyme commit` CLI sends definitions to the control plane. |
-| **Definition Service** | Receives commit payloads, builds an entity dependency graph, generates job blueprints, creates Kafka topics, and persists metadata to Postgres. |
-| **Engine** | Streaming engine that runs continuously. Spawns source connectors and pipeline runners. Consumes from Kafka, executes windowed aggregations, and writes results to RocksDB. |
-| **Query Server** | Reads features from RocksDB, resolves featureset metadata, runs Python extractors via PyO3, and returns JSON. |
+The SDK is responsible for:
+
+- A declarative DSL (`@dataset`, `@pipeline`, `@featureset`, `@source`) for describing features
+- The `thyme` CLI for committing, inspecting, and discovering features
+- A `MockContext` testing framework that mirrors engine semantics in-process so you can unit-test pipelines without infrastructure
+- AI-powered feature discovery (`thyme discover`) that introspects a data source and proposes feature definitions
 
 ## SDK Features
 
@@ -79,7 +77,7 @@ class Transaction:
     ts:      datetime = field(timestamp=True)
 ```
 
-Every dataset has a **key field** (the entity identifier, used for grouping) and a **timestamp field** (event time, used for windowed aggregations). Setting `index=True` maintains a fast lookup index in RocksDB for query-time access.
+Every dataset has a **key field** (the entity identifier, used for grouping) and a **timestamp field** (event time, used for windowed aggregations). Setting `index=True` maintains a fast lookup index for query-time access.
 
 ### Pipeline
 
@@ -104,7 +102,7 @@ class UserStats:
         )
 ```
 
-Pipeline bodies are **lazy** — they return `PipelineNode` descriptions of the computation. No data is processed at import or commit time. The Rust engine compiles the DAG and executes it as a streaming job.
+Pipeline bodies are **lazy** — they return `PipelineNode` descriptions of the computation. No data is processed at import or commit time. Thyme compiles the DAG and executes it as a streaming job.
 
 **Aggregation operators:**
 
@@ -140,11 +138,11 @@ class UserFeatures:
         return row["avg_amount_7d"], row["txn_count_30d"]
 ```
 
-Features have **integer IDs** for stable schema evolution — you can rename features without breaking downstream consumers. Extractors run in Python inside the query server at serving time.
+Features have **integer IDs** for stable schema evolution — you can rename features without breaking downstream consumers. Extractors run at serving time, transforming raw aggregates into the values your application consumes.
 
 ### Source
 
-A source connects an external data system to a dataset. The engine polls the source on a schedule and publishes new rows to Kafka.
+A source connects an external data system to a dataset. Thyme polls the source on a schedule and ingests new rows into the streaming pipeline.
 
 ```python
 from thyme import source, IcebergSource
@@ -229,7 +227,7 @@ The `thyme` CLI manages the feature lifecycle:
 
 ### `thyme commit`
 
-Send feature definitions to the control plane.
+Send feature definitions to the Thyme service.
 
 ```bash
 # Commit from a file
@@ -291,7 +289,7 @@ thyme discover --source-type postgres \
 
 ## Testing
 
-The SDK includes `MockContext` — an in-memory pipeline simulator that mirrors the Rust engine's semantics without requiring any infrastructure.
+The SDK includes `MockContext` — an in-memory pipeline simulator that mirrors the Thyme runtime's semantics without requiring any infrastructure.
 
 ```python
 from thyme.testing import MockContext
