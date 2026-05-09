@@ -48,6 +48,7 @@ The SDK is the authoring surface for Thyme. The flow:
 - **Protobuf for wire format** — `CommitRequest` is serialized as protobuf. Python bindings are pre-generated in `thyme/gen/`.
 - **Registry pattern** — Decorators register metadata in module-level registries (`_DATASET_REGISTRY`, `_PIPELINE_REGISTRY`, `_FEATURESET_REGISTRY`). `clear_registry()` resets state between commits.
 - **Independent versioning** — The SDK ships separately from the runtime so it can be released to PyPI on its own cadence.
+- **Catalog metadata kwargs** — `@featureset`, `@dataset`, and `@source` accept `description`, `owner`, `tags`, `project`, `deprecated`, `deprecation_reason`, `replacement`. Tags accept `list[str]` or `dict[str, str]` (normalized to dict). Stored on the class as `__thyme_metadata__` and serialized in the commit payload. Unknown kwargs trigger `FutureWarning` (forward-compat). Source of truth: `thyme/metadata.py`.
 
 ## Key Modules
 
@@ -55,6 +56,7 @@ The SDK is the authoring surface for Thyme. The flow:
 - `thyme/pipeline.py` — `@pipeline`, `@inputs`, aggregation operators (`Avg`, `Count`, `Sum`, `Min`, `Max`)
 - `thyme/featureset.py` — `@featureset`, `@feature`, `@extractor`, `@extractor_inputs`, `@extractor_outputs`
 - `thyme/connectors.py` — `@source`, `IcebergSource`, `PostgresSource`, `S3JsonSource`
+- `thyme/metadata.py` — `EntityMetadata` dataclass; catalog kwargs shared by all three decorators
 - `thyme/cli.py` — Typer CLI app (`commit`, `status`, `logs`, `discover`)
 - `thyme/compiler.py` — Protobuf `CommitRequest` compilation
 - `thyme/testing/` — `MockContext` in-memory pipeline simulator
