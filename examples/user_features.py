@@ -20,18 +20,30 @@ from thyme.featureset import (
 )
 
 
-@dataset(index=True, version=1)
+@dataset(
+    index=True,
+    version=1,
+    description="Per-user purchase events.",
+    owner="ml-platform@thyme.io",
+    tags=["ingest", "purchases"],
+    project="risk",
+)
 class Purchase:
     user_id: int = field(key=True)
     amount: float = field()
     event_time: datetime = field(timestamp=True)
 
 
-@featureset
+@featureset(
+    description="User-level spend signals derived from Purchase events.",
+    owner="ml-platform@thyme.io",
+    tags=["user", "spend"],
+    project="risk",
+)
 class UserFeatures:
-    user_id: int = feature(id=1)
-    total_spend: float = feature(id=2)
-    purchase_count: int = feature(id=3)
+    user_id: int = feature()
+    total_spend: float = feature()
+    purchase_count: int = feature()
 
     @extractor
     @extractor_inputs("user_id")
