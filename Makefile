@@ -5,6 +5,7 @@ PROTO_FILES := \
 	thyme/schema.proto \
 	thyme/pycode.proto \
 	thyme/expr.proto \
+	thyme/metadata.proto \
 	thyme/connector.proto \
 	thyme/dataset.proto \
 	thyme/featureset.proto \
@@ -24,8 +25,9 @@ proto:
 	mv thyme/gen/_tmp/thyme/*.pyi thyme/gen/
 	rm -rf thyme/gen/_tmp
 	# Rewrite sibling imports: `from thyme import X_pb2` → `from thyme.gen import X_pb2`
-	sed -i -E 's/^from thyme import ([a-z_]+_pb2) as /from thyme.gen import \1 as /' thyme/gen/*.py
-	sed -i -E 's/^from thyme import ([a-z_]+_pb2)$$/from thyme.gen import \1/' thyme/gen/*.pyi
+	sed -i.bak -E 's/^from thyme import ([a-z_]+_pb2) as /from thyme.gen import \1 as /' thyme/gen/*.py
+	sed -i.bak -E 's/^from thyme import ([a-z_]+_pb2)$$/from thyme.gen import \1/' thyme/gen/*.pyi
+	rm -f thyme/gen/*.bak
 
 test:
 	uv run pytest -v

@@ -1,7 +1,7 @@
 """Build API-shaped commit payload (Rust definition service JSON). No protobuf dependency."""
 
-from dataclasses import asdict, dataclass
-from typing import Any, List, Optional
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -59,12 +59,26 @@ class ExtractorDef:
 
 
 @dataclass
+class MetadataDef:
+    """Matches Rust EntityMetadata for API JSON. Mirrors `thyme.metadata.EntityMetadata`."""
+
+    description: Optional[str] = None
+    owner: Optional[str] = None
+    tags: Dict[str, str] = field(default_factory=dict)
+    project: Optional[str] = None
+    deprecated: bool = False
+    deprecation_reason: Optional[str] = None
+    replacement: Optional[str] = None
+
+
+@dataclass
 class FeaturesetDef:
     """Matches Rust FeaturesetDef for API JSON."""
 
     name: str
     features: List[FeatureDef]
     extractors: List[ExtractorDef]
+    metadata: MetadataDef = field(default_factory=MetadataDef)
 
 
 def _wire_operator(op: dict) -> dict:
@@ -145,13 +159,32 @@ def _to_extractor(ext: dict) -> ExtractorDef:
     )
 
 
+def _to_metadata(meta: dict | None) -> MetadataDef:
+    if not meta:
+        return MetadataDef()
+    return MetadataDef(
+        description=meta.get("description"),
+        owner=meta.get("owner"),
+        tags=dict(meta.get("tags") or {}),
+        project=meta.get("project"),
+        deprecated=bool(meta.get("deprecated", False)),
+        deprecation_reason=meta.get("deprecation_reason"),
+        replacement=meta.get("replacement"),
+    )
+
+
 def _to_featureset(fs: dict) -> FeaturesetDef:
     features = [
         FeatureDef(name=f["name"], dtype=f["dtype"])
         for f in fs.get("features", [])
     ]
     extractors = [_to_extractor(ext) for ext in fs.get("extractors", [])]
-    return FeaturesetDef(name=fs["name"], features=features, extractors=extractors)
+    return FeaturesetDef(
+        name=fs["name"],
+        features=features,
+        extractors=extractors,
+        metadata=_to_metadata(fs.get("metadata")),
+    )
 
 
 def build_commit_request_for_api(

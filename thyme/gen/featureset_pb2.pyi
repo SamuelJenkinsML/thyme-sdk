@@ -1,6 +1,7 @@
 from thyme import schema_pb2 as _schema_pb2
 from thyme import pycode_pb2 as _pycode_pb2
 from thyme import expr_pb2 as _expr_pb2
+from thyme import metadata_pb2 as _metadata_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
@@ -20,16 +21,18 @@ PY_FUNC: ExtractorKind
 LOOKUP: ExtractorKind
 
 class Featureset(_message.Message):
-    __slots__ = ("name", "features", "extractors", "pycode")
+    __slots__ = ("name", "features", "extractors", "pycode", "metadata")
     NAME_FIELD_NUMBER: _ClassVar[int]
     FEATURES_FIELD_NUMBER: _ClassVar[int]
     EXTRACTORS_FIELD_NUMBER: _ClassVar[int]
     PYCODE_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
     name: str
     features: _containers.RepeatedCompositeFieldContainer[Feature]
     extractors: _containers.RepeatedCompositeFieldContainer[Extractor]
     pycode: _pycode_pb2.PyCode
-    def __init__(self, name: _Optional[str] = ..., features: _Optional[_Iterable[_Union[Feature, _Mapping]]] = ..., extractors: _Optional[_Iterable[_Union[Extractor, _Mapping]]] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ...) -> None: ...
+    metadata: _metadata_pb2.EntityMetadata
+    def __init__(self, name: _Optional[str] = ..., features: _Optional[_Iterable[_Union[Feature, _Mapping]]] = ..., extractors: _Optional[_Iterable[_Union[Extractor, _Mapping]]] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., metadata: _Optional[_Union[_metadata_pb2.EntityMetadata, _Mapping]] = ...) -> None: ...
 
 class Feature(_message.Message):
     __slots__ = ("name", "dtype")
