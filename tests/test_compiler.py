@@ -8,6 +8,9 @@ from thyme.compiler import (
     compile_commit_request,
 )
 from thyme.gen import (
+    connector_pb2,
+    dataset_pb2,
+    featureset_pb2,
     services_pb2,
 )
 
@@ -509,3 +512,105 @@ def test_compile_extractor_preserves_nested_pycode():
     ext = msg.featuresets[0].extractors[0]
     assert ext.pycode is not None
     assert "compute_x" in ext.pycode.source_code
+
+
+# --- Catalog metadata round-trip (TH-CAT-A2) ---------------------------------
+
+_FULL_METADATA = {
+    "description": "User-level fraud signals.",
+    "owner": "ml-platform@thyme.io",
+    "tags": {"fraud": "", "domain": "risk"},
+    "project": "risk",
+    "deprecated": False,
+    "deprecation_reason": None,
+    "replacement": None,
+}
+
+
+def test_compile_featureset_round_trips_metadata():
+    fs_meta = {
+        "name": "UserFraudSignals",
+        "features": [{"name": "user_id", "dtype": "int"}],
+        "extractors": [],
+        "metadata": _FULL_METADATA,
+    }
+    proto = compile_featureset(fs_meta)
+    assert proto.metadata.description == "User-level fraud signals."
+    assert proto.metadata.owner == "ml-platform@thyme.io"
+    assert dict(proto.metadata.tags) == {"fraud": "", "domain": "risk"}
+    assert proto.metadata.project == "risk"
+    # proto3 round-trip via SerializeToString preserves the metadata block.
+    rt = featureset_pb2.Featureset.FromString(proto.SerializeToString())
+    assert rt.metadata.owner == "ml-platform@thyme.io"
+
+
+def test_compile_dataset_round_trips_metadata():
+    ds_meta = {
+        "name": "Purchase",
+        "version": 1,
+        "index": True,
+        "fields": [
+            {"name": "user_id", "type": "int", "key": True},
+            {"name": "ts", "type": "datetime", "timestamp": True},
+        ],
+        "metadata": {
+            "description": "Per-user purchase events.",
+            "owner": "data-eng@thyme.io",
+            "tags": {"ingest": ""},
+            "project": "risk",
+        },
+    }
+    proto = compile_dataset(ds_meta)
+    assert proto.metadata.description == "Per-user purchase events."
+    assert proto.metadata.owner == "data-eng@thyme.io"
+    assert dict(proto.metadata.tags) == {"ingest": ""}
+    rt = dataset_pb2.Dataset.FromString(proto.SerializeToString())
+    assert rt.metadata.project == "risk"
+
+
+def test_compile_source_round_trips_metadata():
+    src_meta = {
+        "dataset": "Purchase",
+        "cursor": "ts",
+        "every": "1m",
+        "max_lateness": "5m",
+        "cdc": "append",
+        "connector_type": "iceberg",
+        "config": {"catalog": "main", "database": "db", "table": "purchases"},
+        "metadata": {
+            "owner": "data-eng@thyme.io",
+            "tags": {"ingest": "", "iceberg": ""},
+        },
+    }
+    proto = compile_source(src_meta)
+    assert proto.metadata.owner == "data-eng@thyme.io"
+    assert dict(proto.metadata.tags) == {"ingest": "", "iceberg": ""}
+    rt = connector_pb2.Source.FromString(proto.SerializeToString())
+    assert rt.metadata.owner == "data-eng@thyme.io"
+
+
+def test_compile_featureset_omits_metadata_when_absent():
+    """When the registry dict has no metadata key, the proto field is unset
+    (proto3 default-valued) — keeps the wire compact for entities that haven't
+    opted in."""
+    fs_meta = {
+        "name": "Bare",
+        "features": [{"name": "user_id", "dtype": "int"}],
+        "extractors": [],
+    }
+    proto = compile_featureset(fs_meta)
+    # proto3 default-valued message field: HasField returns False until set.
+    assert not proto.HasField("metadata")
+
+
+def test_compile_featureset_handles_empty_metadata_dict():
+    """Empty metadata dict (e.g. `__thyme_metadata__` from a bare decorator)
+    serializes as an unset field too — the helper short-circuits on falsy."""
+    fs_meta = {
+        "name": "Bare",
+        "features": [{"name": "user_id", "dtype": "int"}],
+        "extractors": [],
+        "metadata": {},
+    }
+    proto = compile_featureset(fs_meta)
+    assert not proto.HasField("metadata")

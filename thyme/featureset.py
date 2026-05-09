@@ -1,5 +1,6 @@
 import inspect
 import textwrap
+from dataclasses import asdict
 from typing import Any, Callable, List, Optional, TypeVar, overload
 
 from thyme.dataset import Field, _is_optional, _type_to_string
@@ -221,6 +222,7 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
         "name": cls.__name__,
         "features": features,
         "extractors": extractors,
+        "metadata": asdict(metadata),
     }
     _FEATURESET_REGISTRY[cls.__name__] = schema
     cls._featureset_meta = schema

@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Callable, ClassVar
 
@@ -415,6 +416,7 @@ def source(
         source_meta["every"] = every
         source_meta["max_lateness"] = max_lateness
         source_meta["cdc"] = cdc
+        source_meta["metadata"] = asdict(metadata)
         _SOURCE_REGISTRY[cls.__name__] = source_meta
         cls._source_meta = source_meta
         cls.__thyme_metadata__ = metadata

@@ -1,6 +1,7 @@
 from thyme import schema_pb2 as _schema_pb2
 from thyme import pycode_pb2 as _pycode_pb2
 from thyme import expr_pb2 as _expr_pb2
+from thyme import metadata_pb2 as _metadata_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -10,20 +11,22 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class Dataset(_message.Message):
-    __slots__ = ("name", "version", "schema", "indexed", "pycode", "expectations")
+    __slots__ = ("name", "version", "schema", "indexed", "pycode", "expectations", "metadata")
     NAME_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     SCHEMA_FIELD_NUMBER: _ClassVar[int]
     INDEXED_FIELD_NUMBER: _ClassVar[int]
     PYCODE_FIELD_NUMBER: _ClassVar[int]
     EXPECTATIONS_FIELD_NUMBER: _ClassVar[int]
+    METADATA_FIELD_NUMBER: _ClassVar[int]
     name: str
     version: int
     schema: _schema_pb2.DSSchema
     indexed: bool
     pycode: _pycode_pb2.PyCode
     expectations: _containers.RepeatedCompositeFieldContainer[Expectation]
-    def __init__(self, name: _Optional[str] = ..., version: _Optional[int] = ..., schema: _Optional[_Union[_schema_pb2.DSSchema, _Mapping]] = ..., indexed: bool = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., expectations: _Optional[_Iterable[_Union[Expectation, _Mapping]]] = ...) -> None: ...
+    metadata: _metadata_pb2.EntityMetadata
+    def __init__(self, name: _Optional[str] = ..., version: _Optional[int] = ..., schema: _Optional[_Union[_schema_pb2.DSSchema, _Mapping]] = ..., indexed: bool = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., expectations: _Optional[_Iterable[_Union[Expectation, _Mapping]]] = ..., metadata: _Optional[_Union[_metadata_pb2.EntityMetadata, _Mapping]] = ...) -> None: ...
 
 class Expectation(_message.Message):
     __slots__ = ("type", "column", "mostly", "min_value", "max_value", "values", "type_name")

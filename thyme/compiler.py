@@ -6,6 +6,7 @@ from thyme.gen import (
     dataset_pb2,
     expr_pb2,
     featureset_pb2,
+    metadata_pb2,
     pycode_pb2,
     schema_pb2,
     services_pb2,
@@ -47,6 +48,27 @@ def _make_secret_ref(value: object) -> connector_pb2.SecretRef:
         v = value or ""
     proto_kind = _SECRET_KIND_MAP.get(kind, connector_pb2.SecretRef.LITERAL)
     return connector_pb2.SecretRef(kind=proto_kind, value=v)
+
+
+def _make_metadata(meta: dict | None) -> metadata_pb2.EntityMetadata | None:
+    """Build an EntityMetadata proto from the registry-shaped dict.
+
+    Returns None when no metadata is present; callers leave the field unset
+    so the wire form stays compact for entities that didn't opt in. Empty
+    string fields on the proto map to "not specified" — consistent with
+    proto3 default-value semantics.
+    """
+    if not meta:
+        return None
+    return metadata_pb2.EntityMetadata(
+        description=meta.get("description") or "",
+        owner=meta.get("owner") or "",
+        tags=dict(meta.get("tags") or {}),
+        project=meta.get("project") or "",
+        deprecated=bool(meta.get("deprecated", False)),
+        deprecation_reason=meta.get("deprecation_reason") or "",
+        replacement=meta.get("replacement") or "",
+    )
 
 
 def _make_pycode(source_code: str, entry_point: str = "") -> pycode_pb2.PyCode:
@@ -100,6 +122,7 @@ def compile_dataset(ds_meta: dict) -> dataset_pb2.Dataset:
         schema=schema_pb2.DSSchema(fields=fields),
         indexed=ds_meta.get("index", False),
         expectations=expectations,
+        metadata=_make_metadata(ds_meta.get("metadata")),
     )
 
 
@@ -298,6 +321,7 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
         name=fs_meta["name"],
         features=features,
         extractors=extractors,
+        metadata=_make_metadata(fs_meta.get("metadata")),
     )
 
 
@@ -308,6 +332,7 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
         every=src_meta.get("every", ""),
         max_lateness=src_meta.get("max_lateness", ""),
         cdc=src_meta.get("cdc", "append"),
+        metadata=_make_metadata(src_meta.get("metadata")),
     )
     config = src_meta.get("config", {})
     connector_type = src_meta.get("connector_type", "")

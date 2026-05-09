@@ -2,7 +2,7 @@ import inspect
 import json
 import types
 from copy import deepcopy
-from dataclasses import dataclass, fields
+from dataclasses import asdict, dataclass, fields
 from typing import (
     Any,
     Generic,
@@ -275,6 +275,7 @@ def dataset(index: bool = False, version: int = 1, **kwargs):
         cls = dataclass(cls)
         _validate_dataset_fields(cls)
         schema = _build_schema(cls, index=index, version=version)
+        schema["metadata"] = asdict(metadata)
         _DATASET_REGISTRY[cls.__name__] = schema
         cls._dataset_meta = schema
         cls.__thyme_metadata__ = metadata
