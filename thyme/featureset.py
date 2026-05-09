@@ -3,6 +3,7 @@ import textwrap
 from typing import Any, Callable, List, Optional, TypeVar, overload
 
 from thyme.dataset import Field, _is_optional, _type_to_string
+from thyme.metadata import EntityMetadata, _build_metadata
 
 
 T = TypeVar("T")
@@ -99,8 +100,25 @@ def _literal_for_default(value: Any) -> Any:
     return value
 
 
-def featureset(cls: type) -> type:
-    """Decorator to register a class as a featureset."""
+def featureset(cls=None, /, **kwargs):
+    """Decorator to register a class as a featureset.
+
+    Supports both `@featureset` (bare) and `@featureset(owner=..., tags=...)`.
+    Catalog metadata kwargs (`description`, `owner`, `tags`, `project`,
+    `deprecated`, `deprecation_reason`, `replacement`) are stashed on the
+    class as `__thyme_metadata__`. Unknown kwargs trigger a `FutureWarning`
+    so older SDKs don't break on newer commit-author kwargs."""
+    metadata = _build_metadata("featureset", kwargs)
+
+    def _apply(cls: type) -> type:
+        return _register_featureset(cls, metadata)
+
+    if cls is not None:
+        return _apply(cls)
+    return _apply
+
+
+def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
     features = []
     extractors = []
 
@@ -206,6 +224,7 @@ def featureset(cls: type) -> type:
     }
     _FEATURESET_REGISTRY[cls.__name__] = schema
     cls._featureset_meta = schema
+    cls.__thyme_metadata__ = metadata
     return cls
 
 

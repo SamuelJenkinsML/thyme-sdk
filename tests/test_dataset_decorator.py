@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from thyme.dataset import get_registered_datasets
+import pytest
+
+from thyme.dataset import dataset, field, get_registered_datasets
 
 
 def test_dataset_registers_with_correct_schema(make_dataset):
@@ -48,3 +50,55 @@ def test_dataset_schema_has_expected_structure(make_dataset):
     assert "id" in field_names
     assert "value" in field_names
     assert "ts" in field_names
+
+
+# ---------------------------------------------------------------------------
+# Catalog metadata kwargs (TH-CAT-A1)
+# ---------------------------------------------------------------------------
+
+
+def _make_dataset_with(**dataset_kwargs):
+    """Build a minimal dataset class through the @dataset decorator with the
+    given kwargs. Returns the decorated class."""
+    namespace = {
+        "__annotations__": {"id": int, "value": float, "ts": datetime},
+        "id": field(key=True),
+        "value": field(),
+        "ts": field(timestamp=True),
+    }
+    cls = type("MetaDataset", (), namespace)
+    return dataset(**dataset_kwargs)(cls)
+
+
+def test_dataset_default_kwargs_attach_empty_metadata():
+    from thyme.metadata import EntityMetadata
+
+    cls = _make_dataset_with(index=True, version=1)
+    assert cls.__thyme_metadata__ == EntityMetadata()
+
+
+def test_dataset_with_metadata_kwargs_populates():
+    cls = _make_dataset_with(
+        index=True,
+        version=2,
+        owner="data-eng@thyme.io",
+        tags=["raw", "events"],
+        description="Raw event log",
+        project="ingestion",
+    )
+    md = cls.__thyme_metadata__
+    assert md.owner == "data-eng@thyme.io"
+    assert md.tags == {"raw": "", "events": ""}
+    assert md.description == "Raw event log"
+    assert md.project == "ingestion"
+    # Existing schema kwargs still applied
+    meta = get_registered_datasets()["MetaDataset"]
+    assert meta["version"] == 2
+    assert meta["index"] is True
+
+
+def test_dataset_unknown_kwarg_warns_but_registers():
+    with pytest.warns(FutureWarning, match="future_kwarg"):
+        cls = _make_dataset_with(index=True, version=1, future_kwarg="y")
+    assert "MetaDataset" in get_registered_datasets()
+    assert cls.__thyme_metadata__ == cls.__thyme_metadata__  # attribute exists
