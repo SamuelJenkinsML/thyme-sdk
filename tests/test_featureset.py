@@ -272,3 +272,47 @@ def test_extractor_empty_inputs_outputs_allowed():
     assert "DepsOnly" in fs
     assert fs["DepsOnly"]["extractors"][0]["inputs"] == []
     assert fs["DepsOnly"]["extractors"][0]["outputs"] == []
+
+
+# ---------------------------------------------------------------------------
+# Catalog metadata kwargs (TH-CAT-A1)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_featureset_attaches_default_metadata():
+    from thyme.metadata import EntityMetadata
+
+    @featureset
+    class Bare:
+        x: int = feature()
+
+    assert Bare.__thyme_metadata__ == EntityMetadata()
+
+
+def test_featureset_with_kwargs_populates_metadata():
+    @featureset(
+        description="User-level fraud signals",
+        owner="ml-platform@thyme.io",
+        tags=["fraud", "user"],
+        project="risk",
+    )
+    class WithMeta:
+        user_id: str = feature()
+
+    md = WithMeta.__thyme_metadata__
+    assert md.description == "User-level fraud signals"
+    assert md.owner == "ml-platform@thyme.io"
+    assert md.tags == {"fraud": "", "user": ""}
+    assert md.project == "risk"
+    # And the featureset still registered normally
+    assert "WithMeta" in get_registered_featuresets()
+
+
+def test_featureset_unknown_kwarg_warns_but_registers():
+    with pytest.warns(FutureWarning, match="future_kwarg"):
+        @featureset(owner="x", future_kwarg="y")
+        class Forward:
+            user_id: str = feature()
+
+    assert Forward.__thyme_metadata__.owner == "x"
+    assert "Forward" in get_registered_featuresets()

@@ -133,6 +133,58 @@ def test_source_invalid_cdc_raises_value_error():
 
 
 # ---------------------------------------------------------------------------
+# Catalog metadata kwargs (TH-CAT-A1)
+# ---------------------------------------------------------------------------
+
+
+def test_source_default_kwargs_attach_empty_metadata():
+    from thyme.metadata import EntityMetadata
+
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    @source(src, cursor="ts")
+    class Review:
+        pass
+
+    assert Review.__thyme_metadata__ == EntityMetadata()
+
+
+def test_source_with_metadata_kwargs_populates():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    @source(
+        src,
+        cursor="ts",
+        owner="ingestion@thyme.io",
+        tags=["raw"],
+        description="External review feed",
+        project="ingestion",
+    )
+    class Review:
+        pass
+
+    md = Review.__thyme_metadata__
+    assert md.owner == "ingestion@thyme.io"
+    assert md.tags == {"raw": ""}
+    assert md.description == "External review feed"
+    assert md.project == "ingestion"
+    # Existing source meta still applied
+    assert get_registered_sources()["Review"]["cursor"] == "ts"
+
+
+def test_source_unknown_kwarg_warns_but_registers():
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    with pytest.warns(FutureWarning, match="future_kwarg"):
+        @source(src, cursor="ts", future_kwarg="y")
+        class Review:
+            pass
+
+    assert "Review" in get_registered_sources()
+    assert hasattr(Review, "__thyme_metadata__")
+
+
+# ---------------------------------------------------------------------------
 # PostgresSource tests
 # ---------------------------------------------------------------------------
 

@@ -261,8 +261,14 @@ def _discover_pipelines(cls: type) -> None:
 
 
 @dataclass_transform(field_specifiers=(field,))
-def dataset(index: bool = False, version: int = 1):
-    """Decorator to register a class as a dataset with schema metadata."""
+def dataset(index: bool = False, version: int = 1, **kwargs):
+    """Decorator to register a class as a dataset with schema metadata.
+
+    Catalog metadata kwargs (`description`, `owner`, `tags`, `project`,
+    `deprecated`, `deprecation_reason`, `replacement`) are stashed on the
+    class as `__thyme_metadata__`. Unknown kwargs trigger a `FutureWarning`."""
+    from thyme.metadata import _build_metadata
+    metadata = _build_metadata("dataset", kwargs)
 
     def wrapper(cls):
         # Apply dataclass first so we can use fields()
@@ -271,6 +277,7 @@ def dataset(index: bool = False, version: int = 1):
         schema = _build_schema(cls, index=index, version=version)
         _DATASET_REGISTRY[cls.__name__] = schema
         cls._dataset_meta = schema
+        cls.__thyme_metadata__ = metadata
         _bind_field_references(cls)
         _discover_expectations(cls)
         _discover_pipelines(cls)

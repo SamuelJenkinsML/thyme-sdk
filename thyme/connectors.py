@@ -365,6 +365,7 @@ def source(
     every: str = "",
     max_lateness: str = "",
     cdc: str = "append",
+    **kwargs,
 ) -> Callable:
     """Decorator to attach a source connector to a dataset class.
 
@@ -375,7 +376,13 @@ def source(
         max_lateness: Maximum expected out-of-order delay (e.g. "1h", "1d").
             Events arriving later than (max_event_time - max_lateness) are
             discarded. This sets the watermark for all downstream pipelines.
+
+    Catalog metadata kwargs (`description`, `owner`, `tags`, `project`,
+    `deprecated`, `deprecation_reason`, `replacement`) are stashed on the
+    class as `__thyme_metadata__`. Unknown kwargs trigger a `FutureWarning`.
     """
+    from thyme.metadata import _build_metadata
+    metadata = _build_metadata("source", kwargs)
 
     if not isinstance(connector, SourceConnector):
         raise TypeError(
@@ -410,6 +417,7 @@ def source(
         source_meta["cdc"] = cdc
         _SOURCE_REGISTRY[cls.__name__] = source_meta
         cls._source_meta = source_meta
+        cls.__thyme_metadata__ = metadata
         return cls
 
     return wrapper
