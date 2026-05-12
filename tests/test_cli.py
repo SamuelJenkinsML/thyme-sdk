@@ -494,3 +494,87 @@ def test_commit_proto_failure_warns_and_falls_back_to_json():
     # Should have posted with json=, not content=
     call_kwargs = mock_post.call_args
     assert "json" in call_kwargs.kwargs
+
+
+# ---------------------------------------------------------------------------
+# TH-123: commit-time guardrail — warn when api_url is remote but a Postgres
+# source's host is localhost (engine would fail to ingest from that source).
+# ---------------------------------------------------------------------------
+
+_PAYLOAD_WITH_LOCAL_POSTGRES = {
+    "datasets": [],
+    "pipelines": [],
+    "featuresets": [],
+    "sources": [
+        {
+            "connector_type": "postgres",
+            "config": {
+                "host": "localhost",
+                "port": 5432,
+                "user": "thyme",
+                "password": "thyme",
+                "database": "thyme",
+                "table": "user_profiles",
+            },
+        }
+    ],
+}
+
+
+def test_commit_warns_when_postgres_localhost_with_remote_api():
+    """When --api-url targets a remote control plane and a PostgresSource has
+    host=localhost, stderr emits a warning naming the offending table and
+    pointing at the THYME_POSTGRES_HOST fix. The commit still proceeds.
+    """
+    clear_registry()
+    with patch("thyme.cli.get_commit_payload", return_value=_PAYLOAD_WITH_LOCAL_POSTGRES), \
+         patch("thyme.compiler.compile_commit_request", side_effect=RuntimeError("skip proto")), \
+         patch("httpx.post") as mock_post:
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            raise_for_status=MagicMock(return_value=None),
+        )
+        result = runner.invoke(
+            app,
+            [
+                "commit",
+                "-m",
+                "tests.fixtures.sample_features",
+                "--api-url",
+                "https://api.example.com/api/v1/commit",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "PostgresSource for table 'user_profiles'" in result.output
+    assert "host='localhost'" in result.output
+    assert "https://api.example.com/api/v1/commit" in result.output
+    assert "THYME_POSTGRES_HOST" in result.output
+
+
+def test_commit_does_not_warn_when_both_local():
+    """When the api_url is also localhost (local dev), no warning fires even if
+    a PostgresSource has host=localhost — that's the expected configuration.
+    """
+    clear_registry()
+    with patch("thyme.cli.get_commit_payload", return_value=_PAYLOAD_WITH_LOCAL_POSTGRES), \
+         patch("thyme.compiler.compile_commit_request", side_effect=RuntimeError("skip proto")), \
+         patch("httpx.post") as mock_post:
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            raise_for_status=MagicMock(return_value=None),
+        )
+        result = runner.invoke(
+            app,
+            [
+                "commit",
+                "-m",
+                "tests.fixtures.sample_features",
+                "--api-url",
+                "http://localhost:8080/api/v1/commit",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "PostgresSource for table" not in result.output
+    assert "THYME_POSTGRES_HOST" not in result.output

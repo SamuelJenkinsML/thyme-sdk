@@ -28,6 +28,24 @@ def test_codegen_python_from_path_writes_expected_files(tmp_path: Path) -> None:
     assert (out / "__init__.pyi").exists()
 
 
+def test_codegen_python_from_positional_path_writes_expected_files(
+    tmp_path: Path,
+) -> None:
+    # Given: codegen python invoked with a positional path argument (matches `thyme commit`)
+    # When: the command runs
+    # Then: it succeeds and writes the same stubs as the --path form
+    out = tmp_path / "stubs"
+
+    result = runner.invoke(
+        app,
+        ["codegen", "python", str(FIXTURE), "--out", str(out)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (out / "user_features.pyi").exists()
+    assert (out / "__init__.pyi").exists()
+
+
 def test_codegen_python_output_parses_and_has_expected_shape(
     tmp_path: Path,
 ) -> None:
@@ -51,7 +69,7 @@ def test_codegen_python_requires_module_or_path(tmp_path: Path) -> None:
         ["codegen", "python", "--out", str(tmp_path / "stubs")],
     )
     assert result.exit_code == 1
-    assert "Provide either" in result.output
+    assert "Provide a path" in result.output
 
 
 def test_codegen_python_rejects_both_module_and_path(tmp_path: Path) -> None:
@@ -133,3 +151,53 @@ def test_codegen_python_handles_import_errors(tmp_path: Path) -> None:
     )
     assert result.exit_code == 1
     assert "importing" in result.output.lower()
+
+
+def test_codegen_python_module_flag_emits_deprecation_warning(
+    tmp_path: Path,
+) -> None:
+    # Given: -m form is still accepted for backwards compatibility
+    # When: the user passes -m with a valid dotted module
+    # Then: it succeeds but emits a deprecation warning steering to the positional form
+    out = tmp_path / "stubs"
+
+    result = runner.invoke(
+        app,
+        [
+            "codegen",
+            "python",
+            "-m",
+            "tests.fixtures.sample_features",
+            "--out",
+            str(out),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "deprecated" in result.output.lower()
+    assert "positional" in result.output.lower() or "path" in result.output.lower()
+
+
+def test_codegen_python_module_not_found_suggests_positional_path(
+    tmp_path: Path,
+) -> None:
+    # Given: a user runs `-m features` from a venv where cwd isn't on sys.path
+    # When: importlib raises ModuleNotFoundError
+    # Then: the error output suggests the positional-path form by name
+    result = runner.invoke(
+        app,
+        [
+            "codegen",
+            "python",
+            "-m",
+            "definitely_not_a_real_module_xyz",
+            "--out",
+            str(tmp_path / "stubs"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    out_lower = result.output.lower()
+    assert "not found" in out_lower or "no module" in out_lower
+    # Suggests positional path form (e.g. "thyme codegen python features.py")
+    assert "features.py" in result.output or "positional" in out_lower

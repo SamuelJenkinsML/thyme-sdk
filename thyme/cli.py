@@ -45,6 +45,45 @@ def version() -> None:
     typer.echo("thyme 0.1.0")
 
 
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _warn_on_unreachable_source_hosts(payload: dict, api_url: str) -> None:
+    """Warn when api_url targets a remote control plane but a Postgres source's
+    host is localhost — the engine pod will not be able to reach it.
+
+    Postgres is the only built-in connector whose default host is `localhost`,
+    so this is where the footgun lives. Other connectors require explicit
+    configuration. See TH-123 / TH-124 for the demo regression that prompted
+    this guardrail.
+    """
+    from urllib.parse import urlparse
+
+    api_host = (urlparse(api_url).hostname or "").lower()
+    if api_host in _LOCAL_HOSTS or api_host == "":
+        return  # local dev — nothing to flag
+
+    for source in payload.get("sources", []):
+        if source.get("connector_type") != "postgres":
+            continue
+        cfg = source.get("config") or {}
+        host = (cfg.get("host") or "").lower()
+        if host in _LOCAL_HOSTS:
+            table = cfg.get("table", "<unknown>")
+            typer.echo(
+                f"Warning: PostgresSource for table '{table}' has host='{host}' "
+                f"but you are committing to a remote control plane at {api_url}.\n"
+                f"  The engine will fail to ingest from this source. To fix:\n"
+                f"    export THYME_POSTGRES_HOST=<your-rds-endpoint>\n"
+                f"    export THYME_POSTGRES_USER=<user>\n"
+                f"    export THYME_POSTGRES_PASSWORD=<password>\n"
+                f"    export THYME_POSTGRES_DATABASE=<db>\n"
+                f"    export THYME_POSTGRES_SSLMODE=require\n"
+                f"  Then re-run `thyme commit`.",
+                err=True,
+            )
+
+
 def _import_module_by_name(module_name: str) -> None:
     """Import module by dotted path (e.g. myproject.features)."""
     mod = importlib.import_module(module_name)
@@ -115,6 +154,7 @@ def commit(
 
     config = _resolve_config()
     url = api_url or config.api_url
+    _warn_on_unreachable_source_hosts(payload, url)
     headers = _auth_headers()
     try:
         proto_bytes = None
@@ -592,24 +632,52 @@ app.add_typer(codegen_app, name="codegen")
 
 @codegen_app.command("python")
 def codegen_python(
+    path: Optional[Path] = typer.Argument(
+        None, help="Path to feature module file (e.g. features.py)"
+    ),
     out: Path = typer.Option(..., "--out", help="Output directory for .pyi stubs"),
     module: Optional[str] = typer.Option(
-        None, "-m", "--module", help="Module dotted path (e.g. myproject.features)"
+        None,
+        "-m",
+        "--module",
+        help="[DEPRECATED] Module dotted path. Prefer the positional path argument.",
     ),
-    path: Optional[Path] = typer.Option(
-        None, "--path", help="Path to a Python module file containing feature definitions"
+    path_flag: Optional[Path] = typer.Option(
+        None,
+        "--path",
+        help="Path to a Python module file (alias for the positional argument).",
     ),
     force: bool = typer.Option(
         False, "--force", help="Overwrite existing files and prune stale *.pyi"
     ),
 ) -> None:
     """Emit .pyi stubs so ThymeClient / MockContext query methods narrow by featureset."""
-    if module is None and path is None:
-        typer.echo("Error: Provide either -m MODULE or --path FILE.", err=True)
+    if path is not None and path_flag is not None:
+        typer.echo(
+            "Error: Specify the module path once (positional argument or --path, not both).",
+            err=True,
+        )
         raise typer.Exit(1)
-    if module is not None and path is not None:
-        typer.echo("Error: Provide either -m MODULE or --path FILE, not both.", err=True)
+    resolved_path = path or path_flag
+
+    if module is None and resolved_path is None:
+        typer.echo(
+            "Error: Provide a path to the feature module (e.g. `thyme codegen python features.py --out ./client`).",
+            err=True,
+        )
         raise typer.Exit(1)
+    if module is not None and resolved_path is not None:
+        typer.echo(
+            "Error: Provide either -m MODULE or a path, not both.", err=True
+        )
+        raise typer.Exit(1)
+
+    if module is not None:
+        typer.echo(
+            "Warning: -m/--module is deprecated. Pass the file path positionally instead:\n"
+            f"  thyme codegen python <file.py> --out {out}",
+            err=True,
+        )
 
     clear_registry()  # also clears featureset + source registries (dataset.py:203)
 
@@ -617,8 +685,17 @@ def codegen_python(
         if module is not None:
             _import_module_by_name(module)
         else:
-            assert path is not None
-            _import_module_by_path(path)
+            assert resolved_path is not None
+            _import_module_by_path(resolved_path)
+    except ModuleNotFoundError as exc:
+        typer.echo(
+            f"Error importing module: {exc}\n"
+            "Hint: -m expects a dotted module name on sys.path. If your module is a local file, "
+            "use the positional path form instead, e.g.:\n"
+            "  thyme codegen python features.py --out ./client",
+            err=True,
+        )
+        raise typer.Exit(1)
     except Exception as exc:
         typer.echo(f"Error importing module: {exc}", err=True)
         raise typer.Exit(1)
@@ -633,7 +710,7 @@ def codegen_python(
         raise typer.Exit(1)
 
     if not ir.featuresets and not ir.datasets:
-        source_desc = f"module '{module}'" if module else f"file {path}"
+        source_desc = f"module '{module}'" if module else f"file {resolved_path}"
         typer.echo(
             f"Error: no featuresets or datasets found in {source_desc}. "
             f"Did the module import succeed and register decorators?",
