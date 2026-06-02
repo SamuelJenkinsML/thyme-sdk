@@ -228,16 +228,13 @@ class TestQueryBatch:
     """Given a featureset and entity_ids, when calling query_batch(), then batch results returned."""
 
     def test_query_batch_returns_thyme_result(self):
-        # given
+        # given the positional JSON shape (the post-A1b server default)
         fs = _make_featureset_class("UF", [
             {"name": "score", "dtype": "float", "id": 1},
         ])
         mock_response = httpx.Response(200, json={
-            "results": [
-                {"entity_type": "UF", "entity_id": "e1", "features": {"score": 1.0}, "mode": "featureset"},
-                {"entity_type": "UF", "entity_id": "e2", "features": {"score": 2.0}, "mode": "featureset"},
-                {"entity_type": "UF", "entity_id": "e3", "features": {"score": 3.0}, "mode": "featureset"},
-            ]
+            "features": ["entity_id", "score"],
+            "values": [["e1", 1.0], ["e2", 2.0], ["e3", 3.0]],
         })
         transport = _mock_transport({"/features/batch": mock_response})
         config = Config(query_url="http://test:8081")
@@ -256,10 +253,8 @@ class TestQueryBatch:
             {"name": "score", "dtype": "float", "id": 1},
         ])
         mock_response = httpx.Response(200, json={
-            "results": [
-                {"entity_type": "UF", "entity_id": "e1", "features": {"score": 1.5}, "mode": "featureset"},
-                {"entity_type": "UF", "entity_id": "e2", "features": {"score": 2.5}, "mode": "featureset"},
-            ]
+            "features": ["entity_id", "score"],
+            "values": [["e1", 1.5], ["e2", 2.5]],
         })
         transport = _mock_transport({"/features/batch": mock_response})
         config = Config(query_url="http://test:8081")
@@ -268,8 +263,9 @@ class TestQueryBatch:
         # when
         result = client.query_batch(fs, ["e1", "e2"])
 
-        # then
+        # then the wide row carries entity_id alongside the feature
         dicts = result.to_dict()
+        assert dicts[0]["entity_id"] == "e1"
         assert dicts[0]["score"] == 1.5
         assert dicts[1]["score"] == 2.5
 
@@ -283,9 +279,8 @@ class TestQueryBatch:
         def handler(request: httpx.Request) -> httpx.Response:
             captured_requests.append(request)
             return httpx.Response(200, json={
-                "results": [
-                    {"entity_type": "UF", "entity_id": "e1", "features": {"v": 1.0}, "mode": "featureset"},
-                ]
+                "features": ["entity_id", "v"],
+                "values": [["e1", 1.0]],
             })
 
         transport = httpx.MockTransport(handler)
@@ -310,9 +305,8 @@ class TestQueryBatch:
             {"name": "ratio", "dtype": "float", "id": 2},
         ])
         mock_response = httpx.Response(200, json={
-            "results": [
-                {"entity_type": "UF", "entity_id": "e1", "features": {"count": 5, "ratio": 0.8}, "mode": "featureset"},
-            ]
+            "features": ["entity_id", "count", "ratio"],
+            "values": [["e1", 5, 0.8]],
         })
         transport = _mock_transport({"/features/batch": mock_response})
         config = Config(query_url="http://test:8081")
@@ -321,7 +315,7 @@ class TestQueryBatch:
         # when
         result = client.query_batch(fs, ["e1"])
 
-        # then
+        # then the featureset schema is applied to the feature columns
         df = result.to_polars()
         assert df.schema["count"] == pl.Int64
         assert df.schema["ratio"] == pl.Float64
@@ -331,7 +325,7 @@ class TestQueryBatch:
         fs = _make_featureset_class("UF", [
             {"name": "v", "dtype": "float", "id": 1},
         ])
-        mock_response = httpx.Response(200, json={"results": []})
+        mock_response = httpx.Response(200, json={"features": [], "values": []})
         transport = _mock_transport({"/features/batch": mock_response})
         config = Config(query_url="http://test:8081")
         client = ThymeClient(config=config, _transport=transport)
@@ -598,7 +592,8 @@ class TestArrowIPC:
             {"name": "score", "dtype": "float", "id": 1},
             {"name": "count", "dtype": "int", "id": 2},
         ])
-        table = pa.table({"score": [1.5, 2.5], "count": [10, 20]})
+        # the server emits a wide table: entity_id + one column per feature
+        table = pa.table({"entity_id": ["e1", "e2"], "score": [1.5, 2.5], "count": [10, 20]})
         buf = io.BytesIO()
         writer = ipc.new_stream(buf, table.schema)
         writer.write_table(table)
@@ -619,9 +614,10 @@ class TestArrowIPC:
         # when
         result = client.query_batch(fs, ["e1", "e2"])
 
-        # then
+        # then the entity_id column rides alongside the features
         assert len(result) == 2
         dicts = result.to_dict()
+        assert dicts[0]["entity_id"] == "e1"
         assert dicts[0]["score"] == 1.5
         assert dicts[1]["count"] == 20
 
@@ -637,9 +633,8 @@ class TestArrowIPC:
         def handler(request: httpx.Request) -> httpx.Response:
             captured.append(request)
             return httpx.Response(200, json={
-                "results": [
-                    {"entity_type": "UF", "entity_id": "e1", "features": {"v": 1.0}, "mode": "featureset"},
-                ]
+                "features": ["entity_id", "v"],
+                "values": [["e1", 1.0]],
             })
 
         transport = httpx.MockTransport(handler)
@@ -663,9 +658,8 @@ class TestArrowIPC:
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={
-                "results": [
-                    {"entity_type": "UF", "entity_id": "e1", "features": {"score": 3.0}, "mode": "featureset"},
-                ]
+                "features": ["entity_id", "score"],
+                "values": [["e1", 3.0]],
             })
 
         transport = httpx.MockTransport(handler)
@@ -675,7 +669,7 @@ class TestArrowIPC:
         # when
         result = client.query_batch(fs, ["e1"])
 
-        # then: still works via JSON fallback
+        # then: still works via JSON fallback (positional shape)
         assert result.to_dict()[0]["score"] == 3.0
 
     def test_query_offline_deserializes_arrow_ipc(self):
