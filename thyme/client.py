@@ -86,6 +86,32 @@ def _features_to_row(features: dict[str, Any], schema: pl.Schema) -> dict[str, A
     return row
 
 
+def _positional_to_polars(data: dict[str, Any]) -> pl.DataFrame:
+    """Build a DataFrame from the positional batch shape.
+
+    The server's default (and `?format=positional`) response is a 2D matrix:
+    ``{"features": [col_names], "values": [[row], ...]}`` — one wide row per
+    entity, ``entity_id`` leading. This is the JSON fallback for when the server
+    did not return Arrow IPC.
+    """
+    cols: list[str] = data.get("features", [])
+    values: list[list[Any]] = data.get("values", [])
+    if not values:
+        return pl.DataFrame({c: [] for c in cols}) if cols else pl.DataFrame()
+    return pl.DataFrame(values, schema=cols, orient="row")
+
+
+def _apply_featureset_schema(df: pl.DataFrame, schema: pl.Schema) -> pl.DataFrame:
+    """Cast a wide batch frame's feature columns to the declared featureset types.
+
+    The batch response is a wide table (``entity_id`` + one column per feature).
+    Only columns named in the featureset schema are cast; non-feature columns
+    such as ``entity_id`` pass through untouched.
+    """
+    casts = [pl.col(name).cast(dtype) for name, dtype in schema.items() if name in df.columns]
+    return df.with_columns(casts) if casts else df
+
+
 class ThymeClient:
     """Client for querying and managing Thyme features.
 
@@ -195,16 +221,14 @@ class ThymeClient:
         )
         response.raise_for_status()
 
+        # Both transports return a wide table: an `entity_id` column plus one
+        # column per feature (bare names for a single featureset). Arrow IPC is
+        # read zero-copy; the positional-JSON fallback is reshaped to match.
         if _is_arrow_ipc_response(response):
             df = _read_arrow_ipc(response)
         else:
-            data = response.json()
-            results = data.get("results", [])
-            rows = [_features_to_row(r["features"], schema) for r in results]
-            if not rows:
-                df = pl.DataFrame(schema=schema)
-            else:
-                df = pl.DataFrame(rows, schema=schema)
+            df = _positional_to_polars(response.json())
+        df = _apply_featureset_schema(df, schema)
 
         return ThymeResult(
             df,
