@@ -6,6 +6,7 @@ from thyme.dataset import dataset, field
 from thyme.featureset import (
     EXTRACTOR_KIND_LOOKUP,
     EXTRACTOR_KIND_PY_FUNC,
+    FeatureRef,
     clear_featureset_registry,
     extractor,
     extractor_inputs,
@@ -272,6 +273,161 @@ def test_extractor_empty_inputs_outputs_allowed():
     assert "DepsOnly" in fs
     assert fs["DepsOnly"]["extractors"][0]["inputs"] == []
     assert fs["DepsOnly"]["extractors"][0]["outputs"] == []
+
+
+# ---------------------------------------------------------------------------
+# Cross-featureset inputs (TH-157 / A2a) — object-reference syntax
+# ---------------------------------------------------------------------------
+
+
+def test_decorated_featureset_exposes_feature_refs_on_class():
+    """After @featureset, `Featureset.feature` resolves to a FeatureRef whose
+    fqn() is `Featureset.feature` — mirroring how @dataset leaves Field
+    descriptors on the class."""
+    @featureset
+    class SessionFeatures:
+        user_id: str = feature()
+        intent_score: float = feature()
+
+    assert isinstance(SessionFeatures.intent_score, FeatureRef)
+    assert SessionFeatures.intent_score.fqn() == "SessionFeatures.intent_score"
+    assert SessionFeatures.user_id.fqn() == "SessionFeatures.user_id"
+
+
+def test_cross_featureset_input_captured_as_fqn():
+    """A FeatureRef passed to @extractor_inputs is normalized to its FQN
+    string in the registered extractor's inputs."""
+    @featureset
+    class SessionFeatures:
+        user_id: str = feature()
+        intent_score: float = feature()
+
+    @featureset
+    class RankingFeatures:
+        user_id: str = feature()
+        rank_score: float = feature()
+
+        @extractor(deps=[SessionFeatures])
+        @extractor_inputs(SessionFeatures.intent_score)
+        @extractor_outputs("rank_score")
+        def rank(cls, ts, intent_score):
+            return intent_score * 2
+
+    fs = get_registered_featuresets()
+    ext = fs["RankingFeatures"]["extractors"][0]
+    assert ext["inputs"] == ["SessionFeatures.intent_score"]
+    assert ext["outputs"] == ["rank_score"]
+
+
+def test_mixed_local_and_cross_inputs_preserve_order():
+    """Local bare-string inputs and cross-featureset refs may mix; the declared
+    order is preserved (positional param-binding contract)."""
+    @featureset
+    class SessionFeatures:
+        user_id: str = feature()
+        intent_score: float = feature()
+
+    @featureset
+    class RankingFeatures:
+        user_id: str = feature()
+        local_bias: float = feature()
+        rank_score: float = feature()
+
+        @extractor(deps=[SessionFeatures])
+        @extractor_inputs("local_bias", SessionFeatures.intent_score)
+        @extractor_outputs("rank_score")
+        def rank(cls, ts, local_bias, intent_score):
+            return local_bias + intent_score
+
+    fs = get_registered_featuresets()
+    ext = fs["RankingFeatures"]["extractors"][0]
+    assert ext["inputs"] == ["local_bias", "SessionFeatures.intent_score"]
+
+
+def test_cross_featureset_fqn_input_skips_local_validation():
+    """A `.`-qualified cross-featureset input must NOT trip the local
+    'not declared in the featureset' ValueError — it is validated at commit by
+    the definition-service, not the SDK."""
+    @featureset
+    class SessionFeatures:
+        user_id: str = feature()
+        intent_score: float = feature()
+
+    @featureset
+    class RankingFeatures:
+        user_id: str = feature()
+        rank_score: float = feature()
+
+        @extractor(deps=[SessionFeatures])
+        @extractor_inputs(SessionFeatures.intent_score)
+        @extractor_outputs("rank_score")
+        def rank(cls, ts, intent_score):
+            return intent_score
+
+    assert "RankingFeatures" in get_registered_featuresets()
+
+
+def test_cross_featureset_input_is_dtype_agnostic():
+    """Embedding-hook constraint (roadmap §3.1): a cross-fs input of any dtype —
+    here a vector-like list[float] — drops in without special-casing."""
+    @featureset
+    class EmbeddingFeatures:
+        user_id: str = feature()
+        pref_vector: list[float] = feature()
+
+    @featureset
+    class RankingFeatures:
+        user_id: str = feature()
+        rank_score: float = feature()
+
+        @extractor(deps=[EmbeddingFeatures])
+        @extractor_inputs(EmbeddingFeatures.pref_vector)
+        @extractor_outputs("rank_score")
+        def rank(cls, ts, pref_vector):
+            return sum(pref_vector)
+
+    fs = get_registered_featuresets()
+    ext = fs["RankingFeatures"]["extractors"][0]
+    assert ext["inputs"] == ["EmbeddingFeatures.pref_vector"]
+
+
+def test_extractor_inputs_rejects_non_string_non_ref():
+    with pytest.raises(TypeError, match="feature names .str. or"):
+        @featureset
+        class Bad:
+            user_id: str = feature()
+            rank_score: float = feature()
+
+            @extractor
+            @extractor_inputs(123)  # type: ignore[arg-type]
+            @extractor_outputs("rank_score")
+            def rank(cls, ts, x):
+                return x
+
+        _ = Bad
+
+
+def test_extractor_inputs_rejects_unbound_feature_ref():
+    """Referencing a feature on a class that has NOT yet been decorated with
+    @featureset yields the raw FeatureDescriptor — a clear unbound error must
+    fire, pointing the user at decoration order."""
+    class NotYetDecorated:
+        user_id: str = feature()
+        intent_score: float = feature()
+
+    with pytest.raises((TypeError, RuntimeError), match="@featureset"):
+        @featureset
+        class RankingFeatures:
+            user_id: str = feature()
+            rank_score: float = feature()
+
+            @extractor
+            @extractor_inputs(NotYetDecorated.intent_score)
+            @extractor_outputs("rank_score")
+            def rank(cls, ts, intent_score):
+                return intent_score
+
+        _ = RankingFeatures
 
 
 # ---------------------------------------------------------------------------

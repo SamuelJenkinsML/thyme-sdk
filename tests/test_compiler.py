@@ -143,6 +143,30 @@ def test_compile_featureset():
     assert proto.extractors[0].pycode.entry_point == "compute_highly_rated"
 
 
+def test_compile_featureset_preserves_cross_featureset_fqn_input():
+    """A fully-qualified cross-featureset input (TH-157 / A2a) serializes
+    through the existing `repeated string inputs` proto field unchanged — proves
+    no proto change is needed for cross-featureset references."""
+    fs_meta = {
+        "name": "RankingFeatures",
+        "features": [
+            {"name": "user_id", "dtype": "str"},
+            {"name": "rank_score", "dtype": "float"},
+        ],
+        "extractors": [{
+            "name": "rank",
+            "inputs": ["SessionFeatures.intent_score"],
+            "outputs": ["rank_score"],
+            "deps": ["SessionFeatures"],
+            "source_code": "def rank(cls, ts, intent_score): return intent_score * 2",
+            "version": 1,
+            "kind": "PY_FUNC",
+        }],
+    }
+    proto = compile_featureset(fs_meta)
+    assert list(proto.extractors[0].inputs) == ["SessionFeatures.intent_score"]
+
+
 def test_compile_featureset_lookup_kind():
     """LOOKUP-kind extractors carry lookup_info on the proto."""
     fs_meta = {

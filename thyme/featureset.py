@@ -38,6 +38,32 @@ class FeatureDescriptor:
         self.dtype = dtype
 
 
+class FeatureRef:
+    """Class-level reference to a feature on a featureset.
+
+    After ``@featureset`` decorates a class, each declared feature is exposed as
+    a ``FeatureRef`` class attribute, so ``Featureset.feature`` resolves to a
+    ``FeatureRef`` carrying the featureset + feature name. This mirrors how
+    ``@dataset`` leaves :class:`~thyme.dataset.Field` descriptors on the class so
+    ``Dataset.field`` works.
+
+    Consumed by :func:`extractor_inputs` to declare a cross-featureset input
+    (``@extractor_inputs(SessionFeatures.intent_score)``), where it is
+    normalized to the fully-qualified string ``"SessionFeatures.intent_score"``.
+    """
+
+    def __init__(self, name: str, featureset_name: str, dtype: Optional[str] = None):
+        self.name = name
+        self.featureset_name = featureset_name
+        self.dtype = dtype
+
+    def fqn(self) -> str:
+        return f"{self.featureset_name}.{self.name}"
+
+    def __repr__(self) -> str:
+        return f"<FeatureRef {self.fqn()}>"
+
+
 @overload
 def feature(*, ref: Field[T], default: T | None = None) -> T: ...
 @overload
@@ -204,6 +230,11 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
     feature_names = {f["name"] for f in features}
     for ext in extractors:
         for inp in ext["inputs"]:
+            # Cross-featureset inputs are fully-qualified (`Featureset.feature`)
+            # and validated at commit time by the definition-service against the
+            # full set of known featuresets — skip the local declaration check.
+            if "." in inp:
+                continue
             if inp not in feature_names:
                 raise ValueError(
                     f"Extractor '{ext['name']}' in featureset '{cls.__name__}' references "
@@ -227,6 +258,18 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
     _FEATURESET_REGISTRY[cls.__name__] = schema
     cls._featureset_meta = schema
     cls.__thyme_metadata__ = metadata
+
+    # Expose each declared feature as a FeatureRef class attribute so another
+    # featureset can reference it cross-featureset via `cls.feature` in
+    # @extractor_inputs. Done last so it overrides the FeatureDescriptor default
+    # only after the descriptor has been read for feature/extractor synthesis.
+    for feat in features:
+        feat_name = feat["name"]
+        setattr(
+            cls,
+            feat_name,
+            FeatureRef(feat_name, cls.__name__, feat.get("dtype")),
+        )
     return cls
 
 
@@ -251,11 +294,39 @@ def extractor(func: Optional[Callable] = None, *, deps: Optional[List[Any]] = No
     return wrapper
 
 
-def extractor_inputs(*feature_names: str) -> Callable:
-    """Decorator to specify input features for an extractor."""
+def extractor_inputs(*inputs: "str | FeatureRef") -> Callable:
+    """Decorator to specify input features for an extractor.
+
+    Each input is either a bare local feature name (``"score"``) or a
+    cross-featureset object reference (``SessionFeatures.intent_score``). Object
+    references are normalized to their fully-qualified ``"Featureset.feature"``
+    string; the declared order is preserved (it is the positional param-binding
+    contract for the extractor function).
+    """
 
     def wrapper(func: Callable) -> Callable:
-        func._extractor_inputs = list(feature_names)
+        normalized: List[str] = []
+        for inp in inputs:
+            if isinstance(inp, FeatureRef):
+                normalized.append(inp.fqn())
+            elif isinstance(inp, str):
+                normalized.append(inp)
+            elif isinstance(inp, FeatureDescriptor):
+                # `Featureset.feature` on a class that hasn't been decorated yet
+                # resolves to the raw FeatureDescriptor default, not a
+                # FeatureRef. Point the user at decoration order.
+                raise RuntimeError(
+                    "extractor_inputs received an unbound feature reference. "
+                    "Decorate the producer featureset with @featureset before "
+                    "referencing its features as a cross-featureset input."
+                )
+            else:
+                raise TypeError(
+                    "extractor_inputs accepts feature names (str) or "
+                    "Featureset.feature references, got "
+                    f"{type(inp).__name__}"
+                )
+        func._extractor_inputs = normalized
         return func
 
     return wrapper
