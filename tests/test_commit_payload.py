@@ -89,6 +89,35 @@ def test_featureset_metadata_round_trips_through_json_payload():
     assert meta["project"] == "risk"
 
 
+def test_cross_featureset_fqn_input_survives_commit_payload():
+    """A cross-featureset object-ref input (TH-157 / A2a) lands in the commit
+    payload as a fully-qualified `Featureset.feature` string — no payload/proto
+    change required."""
+    @featureset
+    class _A2aSessionFeatures:
+        user_id: int = feature()
+        intent_score: float = feature()
+
+    @featureset
+    class _A2aRankingFeatures:
+        user_id: int = feature()
+        rank_score: float = feature()
+
+        @extractor(deps=[_A2aSessionFeatures])
+        @extractor_inputs(_A2aSessionFeatures.intent_score)
+        @extractor_outputs("rank_score")
+        def rank(cls, ts, intent_score):
+            return intent_score * 2
+
+    payload = get_commit_payload()
+    json.dumps(payload)
+    fs_payload = next(
+        fs for fs in payload["featuresets"] if fs["name"] == "_A2aRankingFeatures"
+    )
+    ext = next(e for e in fs_payload["extractors"] if e["name"] == "rank")
+    assert ext["inputs"] == ["_A2aSessionFeatures.intent_score"]
+
+
 def test_bare_decorators_produce_empty_metadata_block():
     """Decorators without metadata kwargs still emit a `metadata` key with the
     default shape — so backend code can rely on its presence rather than
