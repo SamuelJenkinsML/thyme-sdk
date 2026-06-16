@@ -104,7 +104,7 @@ class KinesisSource(_message.Message):
     def __init__(self, stream_arn: _Optional[str] = ..., role_arn: _Optional[_Union[SecretRef, _Mapping]] = ..., region: _Optional[str] = ..., init_position: _Optional[str] = ..., format: _Optional[str] = ..., endpoint_url: _Optional[str] = ...) -> None: ...
 
 class SnowflakeSource(_message.Message):
-    __slots__ = ("account", "database", "schema", "warehouse", "role", "table", "user", "password")
+    __slots__ = ("account", "database", "schema", "warehouse", "role", "table", "user", "password", "private_key", "private_key_passphrase", "endpoint_url")
     ACCOUNT_FIELD_NUMBER: _ClassVar[int]
     DATABASE_FIELD_NUMBER: _ClassVar[int]
     SCHEMA_FIELD_NUMBER: _ClassVar[int]
@@ -113,6 +113,9 @@ class SnowflakeSource(_message.Message):
     TABLE_FIELD_NUMBER: _ClassVar[int]
     USER_FIELD_NUMBER: _ClassVar[int]
     PASSWORD_FIELD_NUMBER: _ClassVar[int]
+    PRIVATE_KEY_FIELD_NUMBER: _ClassVar[int]
+    PRIVATE_KEY_PASSPHRASE_FIELD_NUMBER: _ClassVar[int]
+    ENDPOINT_URL_FIELD_NUMBER: _ClassVar[int]
     account: str
     database: str
     schema: str
@@ -121,7 +124,10 @@ class SnowflakeSource(_message.Message):
     table: str
     user: str
     password: SecretRef
-    def __init__(self, account: _Optional[str] = ..., database: _Optional[str] = ..., schema: _Optional[str] = ..., warehouse: _Optional[str] = ..., role: _Optional[str] = ..., table: _Optional[str] = ..., user: _Optional[str] = ..., password: _Optional[_Union[SecretRef, _Mapping]] = ...) -> None: ...
+    private_key: SecretRef
+    private_key_passphrase: SecretRef
+    endpoint_url: str
+    def __init__(self, account: _Optional[str] = ..., database: _Optional[str] = ..., schema: _Optional[str] = ..., warehouse: _Optional[str] = ..., role: _Optional[str] = ..., table: _Optional[str] = ..., user: _Optional[str] = ..., password: _Optional[_Union[SecretRef, _Mapping]] = ..., private_key: _Optional[_Union[SecretRef, _Mapping]] = ..., private_key_passphrase: _Optional[_Union[SecretRef, _Mapping]] = ..., endpoint_url: _Optional[str] = ...) -> None: ...
 
 class BigQuerySource(_message.Message):
     __slots__ = ("project_id", "dataset_id", "table", "credentials_json")

@@ -13,6 +13,7 @@ from thyme.connectors import (
     get_registered_sources,
 )
 from thyme.connectors_base import SourceConnector
+from thyme.secret import Secret
 
 
 @pytest.fixture(autouse=True)
@@ -682,6 +683,41 @@ def test_snowflake_source_to_dict_config_fields():
     assert cfg["table"] == "events"
     assert cfg["user"] == "etl_user"
     assert cfg["password"] == {"kind": "literal", "value": "pw"}
+
+
+def test_snowflake_source_private_key_is_credential():
+    # Given: a SnowflakeSource configured with key-pair auth
+    src = SnowflakeSource(
+        account="xy12345", database="d", warehouse="w", table="t", user="u",
+        private_key="-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
+        endpoint_url="http://localhost:4566",
+    )
+
+    # When: calling to_dict
+    cfg = src.to_dict()["config"]
+
+    # Then: private_key is emitted as a credential ref and endpoint_url passes through
+    assert cfg["private_key"] == {
+        "kind": "literal",
+        "value": "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
+    }
+    assert cfg["endpoint_url"] == "http://localhost:4566"
+    # And password defaults to an empty literal (key-pair is primary)
+    assert cfg["password"] == {"kind": "literal", "value": ""}
+
+
+def test_snowflake_source_private_key_accepts_secret():
+    # Given: a SnowflakeSource whose private key is a Secret reference
+    src = SnowflakeSource(
+        account="a", database="d", warehouse="w", table="t", user="u",
+        private_key=Secret(env="SNOWFLAKE_PRIVATE_KEY"),
+    )
+
+    # When: calling to_dict
+    cfg = src.to_dict()["config"]
+
+    # Then: the Secret round-trips as an env credential ref
+    assert cfg["private_key"] == {"kind": "env", "value": "SNOWFLAKE_PRIVATE_KEY"}
 
 
 def test_snowflake_source_default_schema_is_public():
