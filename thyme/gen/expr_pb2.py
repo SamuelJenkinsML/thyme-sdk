@@ -24,19 +24,19 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10thyme/expr.proto\x12\x05thyme\"y\n\tPredicate\x12!\n\x07\x63ompare\x18\x01 \x01(\x0b\x32\x0e.thyme.CompareH\x00\x12 \n\x07is_null\x18\x02 \x01(\x0b\x32\r.thyme.IsNullH\x00\x12\x1f\n\x05logic\x18\x03 \x01(\x0b\x32\x0e.thyme.LogicOpH\x00\x42\x06\n\x04kind\"g\n\x07\x43ompare\x12\x1e\n\x03lhs\x18\x01 \x01(\x0b\x32\x11.thyme.Derivation\x12\x1c\n\x02op\x18\x02 \x01(\x0e\x32\x10.thyme.CompareOp\x12\x1e\n\x03rhs\x18\x03 \x01(\x0b\x32\x11.thyme.Derivation\"\x18\n\x06IsNull\x12\x0e\n\x06\x63olumn\x18\x01 \x01(\t\"M\n\x07LogicOp\x12\x1e\n\x04kind\x18\x01 \x01(\x0e\x32\x10.thyme.LogicKind\x12\"\n\x08operands\x18\x02 \x03(\x0b\x32\x10.thyme.Predicate\"\x92\x01\n\nDerivation\x12\x14\n\ncolumn_ref\x18\x01 \x01(\tH\x00\x12!\n\x07literal\x18\x02 \x01(\x0b\x32\x0e.thyme.LiteralH\x00\x12\x1d\n\x05\x61rith\x18\x03 \x01(\x0b\x32\x0c.thyme.ArithH\x00\x12$\n\tfill_null\x18\x04 \x01(\x0b\x32\x0f.thyme.FillNullH\x00\x42\x06\n\x04kind\"c\n\x05\x41rith\x12\x1a\n\x02op\x18\x01 \x01(\x0e\x32\x0e.thyme.ArithOp\x12\x1e\n\x03lhs\x18\x02 \x01(\x0b\x32\x11.thyme.Derivation\x12\x1e\n\x03rhs\x18\x03 \x01(\x0b\x32\x11.thyme.Derivation\"M\n\x08\x46illNull\x12 \n\x05value\x18\x01 \x01(\x0b\x32\x11.thyme.Derivation\x12\x1f\n\x07\x64\x65\x66\x61ult\x18\x02 \x01(\x0b\x32\x0e.thyme.Literal\"k\n\x07Literal\x12\x13\n\tint_value\x18\x01 \x01(\x03H\x00\x12\x15\n\x0b\x66loat_value\x18\x02 \x01(\x01H\x00\x12\x16\n\x0cstring_value\x18\x03 \x01(\tH\x00\x12\x14\n\nbool_value\x18\x04 \x01(\x08H\x00\x42\x06\n\x04kind*r\n\tCompareOp\x12\x1a\n\x16\x43OMPARE_OP_UNSPECIFIED\x10\x00\x12\n\n\x06\x43MP_EQ\x10\x01\x12\x0b\n\x07\x43MP_NEQ\x10\x02\x12\n\n\x06\x43MP_LT\x10\x03\x12\x0b\n\x07\x43MP_LTE\x10\x04\x12\n\n\x06\x43MP_GT\x10\x05\x12\x0b\n\x07\x43MP_GTE\x10\x06*_\n\x07\x41rithOp\x12\x18\n\x14\x41RITH_OP_UNSPECIFIED\x10\x00\x12\r\n\tARITH_ADD\x10\x01\x12\r\n\tARITH_SUB\x10\x02\x12\r\n\tARITH_MUL\x10\x03\x12\r\n\tARITH_DIV\x10\x04*S\n\tLogicKind\x12\x1a\n\x16LOGIC_KIND_UNSPECIFIED\x10\x00\x12\r\n\tLOGIC_AND\x10\x01\x12\x0c\n\x08LOGIC_OR\x10\x02\x12\r\n\tLOGIC_NOT\x10\x03\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10thyme/expr.proto\x12\x05thyme\"y\n\tPredicate\x12!\n\x07\x63ompare\x18\x01 \x01(\x0b\x32\x0e.thyme.CompareH\x00\x12 \n\x07is_null\x18\x02 \x01(\x0b\x32\r.thyme.IsNullH\x00\x12\x1f\n\x05logic\x18\x03 \x01(\x0b\x32\x0e.thyme.LogicOpH\x00\x42\x06\n\x04kind\"g\n\x07\x43ompare\x12\x1e\n\x03lhs\x18\x01 \x01(\x0b\x32\x11.thyme.Derivation\x12\x1c\n\x02op\x18\x02 \x01(\x0e\x32\x10.thyme.CompareOp\x12\x1e\n\x03rhs\x18\x03 \x01(\x0b\x32\x11.thyme.Derivation\"\x18\n\x06IsNull\x12\x0e\n\x06\x63olumn\x18\x01 \x01(\t\"M\n\x07LogicOp\x12\x1e\n\x04kind\x18\x01 \x01(\x0e\x32\x10.thyme.LogicKind\x12\"\n\x08operands\x18\x02 \x03(\x0b\x32\x10.thyme.Predicate\"\xbe\x01\n\nDerivation\x12\x14\n\ncolumn_ref\x18\x01 \x01(\tH\x00\x12!\n\x07literal\x18\x02 \x01(\x0b\x32\x0e.thyme.LiteralH\x00\x12\x1d\n\x05\x61rith\x18\x03 \x01(\x0b\x32\x0c.thyme.ArithH\x00\x12$\n\tfill_null\x18\x04 \x01(\x0b\x32\x0f.thyme.FillNullH\x00\x12*\n\x0cjson_extract\x18\x05 \x01(\x0b\x32\x12.thyme.JsonExtractH\x00\x42\x06\n\x04kind\"c\n\x05\x41rith\x12\x1a\n\x02op\x18\x01 \x01(\x0e\x32\x0e.thyme.ArithOp\x12\x1e\n\x03lhs\x18\x02 \x01(\x0b\x32\x11.thyme.Derivation\x12\x1e\n\x03rhs\x18\x03 \x01(\x0b\x32\x11.thyme.Derivation\"M\n\x08\x46illNull\x12 \n\x05value\x18\x01 \x01(\x0b\x32\x11.thyme.Derivation\x12\x1f\n\x07\x64\x65\x66\x61ult\x18\x02 \x01(\x0b\x32\x0e.thyme.Literal\"=\n\x0bJsonExtract\x12 \n\x05value\x18\x01 \x01(\x0b\x32\x11.thyme.Derivation\x12\x0c\n\x04path\x18\x02 \x01(\t\"k\n\x07Literal\x12\x13\n\tint_value\x18\x01 \x01(\x03H\x00\x12\x15\n\x0b\x66loat_value\x18\x02 \x01(\x01H\x00\x12\x16\n\x0cstring_value\x18\x03 \x01(\tH\x00\x12\x14\n\nbool_value\x18\x04 \x01(\x08H\x00\x42\x06\n\x04kind*r\n\tCompareOp\x12\x1a\n\x16\x43OMPARE_OP_UNSPECIFIED\x10\x00\x12\n\n\x06\x43MP_EQ\x10\x01\x12\x0b\n\x07\x43MP_NEQ\x10\x02\x12\n\n\x06\x43MP_LT\x10\x03\x12\x0b\n\x07\x43MP_LTE\x10\x04\x12\n\n\x06\x43MP_GT\x10\x05\x12\x0b\n\x07\x43MP_GTE\x10\x06*_\n\x07\x41rithOp\x12\x18\n\x14\x41RITH_OP_UNSPECIFIED\x10\x00\x12\r\n\tARITH_ADD\x10\x01\x12\r\n\tARITH_SUB\x10\x02\x12\r\n\tARITH_MUL\x10\x03\x12\r\n\tARITH_DIV\x10\x04*S\n\tLogicKind\x12\x1a\n\x16LOGIC_KIND_UNSPECIFIED\x10\x00\x12\r\n\tLOGIC_AND\x10\x01\x12\x0c\n\x08LOGIC_OR\x10\x02\x12\r\n\tLOGIC_NOT\x10\x03\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'thyme.expr_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_COMPAREOP']._serialized_start=798
-  _globals['_COMPAREOP']._serialized_end=912
-  _globals['_ARITHOP']._serialized_start=914
-  _globals['_ARITHOP']._serialized_end=1009
-  _globals['_LOGICKIND']._serialized_start=1011
-  _globals['_LOGICKIND']._serialized_end=1094
+  _globals['_COMPAREOP']._serialized_start=905
+  _globals['_COMPAREOP']._serialized_end=1019
+  _globals['_ARITHOP']._serialized_start=1021
+  _globals['_ARITHOP']._serialized_end=1116
+  _globals['_LOGICKIND']._serialized_start=1118
+  _globals['_LOGICKIND']._serialized_end=1201
   _globals['_PREDICATE']._serialized_start=27
   _globals['_PREDICATE']._serialized_end=148
   _globals['_COMPARE']._serialized_start=150
@@ -46,11 +46,13 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_LOGICOP']._serialized_start=281
   _globals['_LOGICOP']._serialized_end=358
   _globals['_DERIVATION']._serialized_start=361
-  _globals['_DERIVATION']._serialized_end=507
-  _globals['_ARITH']._serialized_start=509
-  _globals['_ARITH']._serialized_end=608
-  _globals['_FILLNULL']._serialized_start=610
-  _globals['_FILLNULL']._serialized_end=687
-  _globals['_LITERAL']._serialized_start=689
-  _globals['_LITERAL']._serialized_end=796
+  _globals['_DERIVATION']._serialized_end=551
+  _globals['_ARITH']._serialized_start=553
+  _globals['_ARITH']._serialized_end=652
+  _globals['_FILLNULL']._serialized_start=654
+  _globals['_FILLNULL']._serialized_end=731
+  _globals['_JSONEXTRACT']._serialized_start=733
+  _globals['_JSONEXTRACT']._serialized_end=794
+  _globals['_LITERAL']._serialized_start=796
+  _globals['_LITERAL']._serialized_end=903
 # @@protoc_insertion_point(module_scope)

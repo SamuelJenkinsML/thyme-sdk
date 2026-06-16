@@ -30,9 +30,9 @@ def lit(value: _Scalar) -> "Expr":
 
 
 class Expr:
-    """A scalar expression — either a column reference, a literal, an
-    arithmetic tree, or a ``fill_null`` wrapper. Use operator overloads to
-    build compound expressions."""
+    """A scalar expression — a column reference, a literal, an arithmetic
+    tree, a ``fill_null`` wrapper, or a ``json_extract`` path lookup. Use
+    operator overloads to build compound expressions."""
 
     __slots__ = ("_derivation",)
 
@@ -103,6 +103,22 @@ class Expr:
         d = expr_pb2.Derivation()
         d.fill_null.value.CopyFrom(self._derivation)
         _set_literal(d.fill_null.default, default)
+        return Expr(d)
+
+    def json_extract(self, path: str) -> "Expr":
+        """Extract a value at a dotted object ``path`` out of this JSON column.
+
+        Works on a nested JSON object that survived ingestion
+        (``col("identifiers").json_extract("MVI")``) and on a stringified-JSON
+        blob column, which is parsed first
+        (``col("custom_data").json_extract("gbv")``). Traversal is object-key
+        only (``"a.b.c"``); array indexing is not supported. Any miss — missing
+        key, non-object intermediate, parse failure, or JSON null — yields null,
+        so it composes with arithmetic, ``where=`` predicates, and ``fill_null``.
+        """
+        d = expr_pb2.Derivation()
+        d.json_extract.value.CopyFrom(self._derivation)
+        d.json_extract.path = path
         return Expr(d)
 
 

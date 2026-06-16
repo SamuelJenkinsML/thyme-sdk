@@ -98,6 +98,21 @@ class TestCompilePipeline:
         assert first.assign.column == "amount_usd"
         assert first.assign.value.arith.op == expr_pb2.ARITH_MUL
 
+    def test_compile_emits_json_extract_assign(self):
+        # TH-160/TH-202: json_extract assign survives compilation to the DAG.
+        node = PipelineNode("UserInteraction").assign(
+            gbv=col("custom_data").json_extract("gbv"),
+        )
+        ops = node.to_operators()
+        meta = self._build_meta(node, ops)
+        pipe = compile_pipeline(meta)
+        first = pipe.operators[0]
+        assert first.WhichOneof("op") == "assign"
+        assert first.assign.column == "gbv"
+        assert first.assign.value.WhichOneof("kind") == "json_extract"
+        assert first.assign.value.json_extract.value.column_ref == "custom_data"
+        assert first.assign.value.json_extract.path == "gbv"
+
     def test_compile_preserves_pre_ops_before_aggregate(self):
         node = (
             PipelineNode("Order")
