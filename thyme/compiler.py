@@ -390,6 +390,9 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             table=config.get("table", ""),
             user=config.get("user", ""),
             password=_make_secret_ref(config.get("password", "")),
+            private_key=_make_secret_ref(config.get("private_key", "")),
+            private_key_passphrase=_make_secret_ref(config.get("private_key_passphrase", "")),
+            endpoint_url=config.get("endpoint_url", ""),
         ))
     elif connector_type == "bigquery":
         source.bigquery.CopyFrom(connector_pb2.BigQuerySource(

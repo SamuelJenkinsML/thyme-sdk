@@ -269,7 +269,13 @@ class SnowflakeSource:
 
     Per-dataset (required): table.
     Env-defaulted (THYME_SNOWFLAKE_*): account, database, warehouse, role, user, schema.
-    Secret-capable: password.
+    Secret-capable: private_key (primary auth), private_key_passphrase, password.
+
+    Auth: the engine reads Snowflake over the SQL REST API v2, which
+    authenticates with a key-pair JWT — supply ``private_key`` (PEM-encoded
+    PKCS#8 RSA). ``password`` is retained for a future login-request fallback.
+    ``endpoint_url`` overrides the account base URL for emulator/integration
+    tests (e.g. LocalStack).
     """
 
     connector_type: ClassVar[str] = "snowflake"
@@ -283,18 +289,24 @@ class SnowflakeSource:
         database: str | None = None,
         warehouse: str | None = None,
         user: str | None = None,
+        private_key: str | Secret | None = None,
+        private_key_passphrase: str | Secret | None = None,
         password: str | Secret | None = None,
         schema: str | None = None,
         role: str | None = None,
+        endpoint_url: str | None = None,
     ):
         self.table = _require("SnowflakeSource", "table", table)
         self.account = account or env_default("snowflake", "account", default="")
         self.database = database or env_default("snowflake", "database", default="")
         self.warehouse = warehouse or env_default("snowflake", "warehouse", default="")
         self.user = user or env_default("snowflake", "user", default="")
+        self.private_key: str | Secret = private_key if private_key is not None else env_default("snowflake", "private_key", default="")
+        self.private_key_passphrase: str | Secret = private_key_passphrase if private_key_passphrase is not None else env_default("snowflake", "private_key_passphrase", default="")
         self.password: str | Secret = password if password is not None else env_default("snowflake", "password", default="")
         self.schema = schema or env_default("snowflake", "schema", default="PUBLIC")
         self.role = role or env_default("snowflake", "role", default="")
+        self.endpoint_url = endpoint_url or env_default("snowflake", "endpoint_url", default="")
 
     def to_dict(self) -> dict:
         return {
@@ -307,7 +319,10 @@ class SnowflakeSource:
                 "role": self.role,
                 "table": self.table,
                 "user": self.user,
+                "private_key": _credential_dict(self.private_key),
+                "private_key_passphrase": _credential_dict(self.private_key_passphrase),
                 "password": _credential_dict(self.password),
+                "endpoint_url": self.endpoint_url,
             },
         }
 
