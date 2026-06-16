@@ -212,6 +212,13 @@ def compile_pipeline(pipeline_meta: dict) -> dataset_pb2.Pipeline:
                     window=s["window"],
                     output_field=s["output_field"],
                 )
+                # Last/LastK retention + flags (typed optional proto fields).
+                if "k" in s:
+                    agg_spec.k = s["k"]
+                if "dedup" in s:
+                    agg_spec.dedup = s["dedup"]
+                if "dropnull" in s:
+                    agg_spec.dropnull = s["dropnull"]
                 predicate = s.get("predicate")
                 if predicate is not None:
                     if not isinstance(predicate, expr_pb2.Predicate):

@@ -7,7 +7,7 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class StateValue(_message.Message):
-    __slots__ = ("features", "dimensions", "timestamp", "op", "before", "after", "sketches")
+    __slots__ = ("features", "dimensions", "timestamp", "op", "before", "after", "sketches", "json_features")
     class FeaturesEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -43,6 +43,13 @@ class StateValue(_message.Message):
         key: str
         value: bytes
         def __init__(self, key: _Optional[str] = ..., value: _Optional[bytes] = ...) -> None: ...
+    class JsonFeaturesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
     FEATURES_FIELD_NUMBER: _ClassVar[int]
     DIMENSIONS_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
@@ -50,6 +57,7 @@ class StateValue(_message.Message):
     BEFORE_FIELD_NUMBER: _ClassVar[int]
     AFTER_FIELD_NUMBER: _ClassVar[int]
     SKETCHES_FIELD_NUMBER: _ClassVar[int]
+    JSON_FEATURES_FIELD_NUMBER: _ClassVar[int]
     features: _containers.ScalarMap[str, float]
     dimensions: _containers.ScalarMap[str, str]
     timestamp: str
@@ -57,7 +65,24 @@ class StateValue(_message.Message):
     before: _containers.ScalarMap[str, float]
     after: _containers.ScalarMap[str, float]
     sketches: _containers.ScalarMap[str, bytes]
-    def __init__(self, features: _Optional[_Mapping[str, float]] = ..., dimensions: _Optional[_Mapping[str, str]] = ..., timestamp: _Optional[str] = ..., op: _Optional[str] = ..., before: _Optional[_Mapping[str, float]] = ..., after: _Optional[_Mapping[str, float]] = ..., sketches: _Optional[_Mapping[str, bytes]] = ...) -> None: ...
+    json_features: _containers.ScalarMap[str, str]
+    def __init__(self, features: _Optional[_Mapping[str, float]] = ..., dimensions: _Optional[_Mapping[str, str]] = ..., timestamp: _Optional[str] = ..., op: _Optional[str] = ..., before: _Optional[_Mapping[str, float]] = ..., after: _Optional[_Mapping[str, float]] = ..., sketches: _Optional[_Mapping[str, bytes]] = ..., json_features: _Optional[_Mapping[str, str]] = ...) -> None: ...
+
+class LatestEntry(_message.Message):
+    __slots__ = ("event_ts", "seq", "value_json")
+    EVENT_TS_FIELD_NUMBER: _ClassVar[int]
+    SEQ_FIELD_NUMBER: _ClassVar[int]
+    VALUE_JSON_FIELD_NUMBER: _ClassVar[int]
+    event_ts: int
+    seq: int
+    value_json: bytes
+    def __init__(self, event_ts: _Optional[int] = ..., seq: _Optional[int] = ..., value_json: _Optional[bytes] = ...) -> None: ...
+
+class LatestList(_message.Message):
+    __slots__ = ("entries",)
+    ENTRIES_FIELD_NUMBER: _ClassVar[int]
+    entries: _containers.RepeatedCompositeFieldContainer[LatestEntry]
+    def __init__(self, entries: _Optional[_Iterable[_Union[LatestEntry, _Mapping]]] = ...) -> None: ...
 
 class TDigestCentroid(_message.Message):
     __slots__ = ("mean", "weight")

@@ -33,7 +33,7 @@ class _GroupState:
 
     def compute_aggregate(
         self, agg_spec: dict, reference_time: int, *, upper_bound: int | None = None,
-    ) -> float:
+    ) -> float | str | list | None:
         """Compute one aggregate over events within the window.
 
         Mirrors the Rust engine's semantics:
@@ -42,6 +42,8 @@ class _GroupState:
         - avg: sum / count (0.0 if empty)
         - min: minimum field value in window (0.0 if empty)
         - max: maximum field value in window (0.0 if empty)
+        - last: most-recent in-window value by event time (None if empty)
+        - last_k: the k most-recent values, newest-first (dedup/dropnull honored)
 
         Args:
             agg_spec: Aggregation specification dict.
@@ -65,6 +67,33 @@ class _GroupState:
 
         if agg_type == "count":
             return float(len(in_window))
+
+        if agg_type in ("last", "last_k"):
+            # Newest-first by (event time, insertion order); preserve raw values.
+            ordered = sorted(
+                enumerate(in_window),
+                key=lambda p: (p[1].timestamp_secs, p[0]),
+                reverse=True,
+            )
+            dropnull = agg_spec.get("dropnull", False)
+            raw = []
+            for _, e in ordered:
+                v = e.values.get(field_name, None)
+                if dropnull and v is None:
+                    continue
+                raw.append(v)
+            if agg_type == "last":
+                return raw[0] if raw else None
+            k = agg_spec.get("k", 100)
+            if agg_spec.get("dedup", False):
+                out: list = []
+                for v in raw:
+                    if v not in out:
+                        out.append(v)
+                    if len(out) == k:
+                        break
+                return out
+            return raw[:k]
 
         values = [e.values.get(field_name, 0.0) for e in in_window]
         if not values:
@@ -203,14 +232,20 @@ class MockContext:
                     ts_val = event.get(ts_field) if ts_field else None
                     ts_secs = _parse_timestamp_secs(ts_val) if ts_val is not None else 0
 
-                    # Collect all field values referenced by agg specs
-                    values: dict[str, float] = {}
+                    # Collect all field values referenced by agg specs. Numeric
+                    # values are coerced to float (sum/avg/min/max); Last/LastK
+                    # keep the raw value (e.g. strings) so it round-trips.
+                    values: dict[str, object] = {}
                     for spec in agg_specs:
                         field_name = spec.get("field", "")
                         if field_name and field_name in event:
                             val = event[field_name]
-                            if isinstance(val, (int, float)):
+                            if isinstance(val, bool):
+                                values[field_name] = val
+                            elif isinstance(val, (int, float)):
                                 values[field_name] = float(val)
+                            else:
+                                values[field_name] = val
 
                     # Store in group state (legacy dict-based)
                     state_key = (output_dataset, pipe_name, group_key_str)

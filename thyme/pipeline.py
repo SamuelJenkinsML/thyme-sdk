@@ -191,6 +191,61 @@ class ApproxPercentile(AggOp):
         return "approx_percentile"
 
 
+class Last(AggOp):
+    """Most-recent in-window value of a field, ordered by event timestamp.
+
+    The materialized feature value is the single newest value (a string, number,
+    or any JSON value — types round-trip). Equivalent to ``LastK`` with ``k=1``
+    emitting a scalar instead of a list.
+    """
+
+    def __init__(
+        self,
+        of: str = "",
+        window: str = "",
+        *,
+        dropnull: bool = False,
+        where: Optional[PredicateExpr] = None,
+    ):
+        super().__init__(of=of, window=window, where=where)
+        self.dropnull = dropnull
+
+    @property
+    def agg_type(self) -> str:
+        return "last"
+
+
+class LastK(AggOp):
+    """The ``k`` most-recent in-window values of a field, newest-first.
+
+    The materialized feature value is a list (element types round-trip). With
+    ``dedup=True`` the list holds the ``k`` most-recent *distinct* values (the
+    newest occurrence of each wins). With ``dropnull=True`` null/missing values
+    are skipped.
+    """
+
+    def __init__(
+        self,
+        of: str = "",
+        window: str = "",
+        k: int = 100,
+        *,
+        dedup: bool = False,
+        dropnull: bool = False,
+        where: Optional[PredicateExpr] = None,
+    ):
+        if k < 1:
+            raise ValueError(f"LastK requires k >= 1, got {k}")
+        super().__init__(of=of, window=window, where=where)
+        self.k = k
+        self.dedup = dedup
+        self.dropnull = dropnull
+
+    @property
+    def agg_type(self) -> str:
+        return "last_k"
+
+
 class PipelineNode:
     """Represents a step in a pipeline DAG."""
 
@@ -331,6 +386,15 @@ class PipelineNode:
             }
             if hasattr(op, "precision"):
                 spec["precision"] = op.precision
+            # Last/LastK retention + flags. Last is implicitly k=1.
+            if op.agg_type == "last":
+                spec["k"] = 1
+            if hasattr(op, "k"):
+                spec["k"] = op.k
+            if hasattr(op, "dedup"):
+                spec["dedup"] = op.dedup
+            if hasattr(op, "dropnull"):
+                spec["dropnull"] = op.dropnull
             if op.where is not None:
                 # Store both the proto (for compile_commit_request → binary
                 # protobuf POST) and the wire-form dict (for json.dumps of
