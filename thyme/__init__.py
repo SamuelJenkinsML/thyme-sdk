@@ -1,6 +1,6 @@
 from thyme.config import Config
 from thyme.dataset import dataset, field, get_commit_payload, get_registered_datasets, get_registered_pipelines, serialize_definitions
-from thyme.pipeline import pipeline, inputs, Avg, Count, Sum, Min, Max, ApproxPercentile
+from thyme.pipeline import pipeline, inputs, Avg, Count, Sum, Min, Max, ApproxPercentile, Last, LastK
 from thyme.featureset import featureset, feature, extractor, extractor_inputs, extractor_outputs
 from thyme.connectors import source, BigQuerySource, IcebergSource, KafkaSource, KinesisSource, PostgresSource, S3JsonSource, SnowflakeSource
 from thyme.expectations import expectations
@@ -22,7 +22,7 @@ __all__ = [
     "Config",
     "Secret",
     "dataset", "field", "get_commit_payload", "get_registered_datasets", "get_registered_pipelines", "serialize_definitions",
-    "pipeline", "inputs", "Avg", "Count", "Sum", "Min", "Max", "ApproxPercentile",
+    "pipeline", "inputs", "Avg", "Count", "Sum", "Min", "Max", "ApproxPercentile", "Last", "LastK",
     "featureset", "feature", "extractor", "extractor_inputs", "extractor_outputs",
     "source", "BigQuerySource", "IcebergSource", "KafkaSource", "KinesisSource", "PostgresSource", "S3JsonSource", "SnowflakeSource",
     "expectations",

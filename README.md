@@ -55,7 +55,7 @@ The SDK is responsible for:
 
 - **Declarative DSL** — `@dataset`, `@pipeline`, `@featureset`, and `@source` decorators define your feature graph
 - **Multiple connectors** — Iceberg, Postgres, S3 JSON, and local JSONL sources
-- **Aggregation operators** — `Avg`, `Count`, `Sum`, `Min`, `Max` with configurable time windows
+- **Aggregation operators** — `Avg`, `Count`, `Sum`, `Min`, `Max`, `Last`, `LastK` with configurable time windows
 - **LLM-powered discovery** — `thyme discover` introspects a data source and generates feature definitions using AI
 - **Testing framework** — `MockContext` for unit testing pipelines without infrastructure
 - **CLI tools** — `commit`, `status`, `logs`, `discover` for managing the feature lifecycle
@@ -113,6 +113,8 @@ Pipeline bodies are **lazy** — they return `PipelineNode` descriptions of the 
 | `Sum(of, window)` | Rolling sum of a numeric field |
 | `Min(of, window)` | Rolling minimum |
 | `Max(of, window)` | Rolling maximum |
+| `Last(of, window, *, dropnull=False)` | Most-recent in-window value, by event time (any type) |
+| `LastK(of, window, k=100, *, dedup=False, dropnull=False)` | The `k` most-recent in-window values, newest-first (list) |
 
 Windows are specified as strings: `"7d"` (7 days), `"24h"` (24 hours), `"30m"` (30 minutes). All windows use **event time**, not processing time.
 

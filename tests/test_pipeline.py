@@ -1,4 +1,6 @@
-from thyme.pipeline import pipeline, inputs, Avg, Count, Sum, PipelineNode
+import pytest
+
+from thyme.pipeline import pipeline, inputs, Avg, Count, Sum, Last, LastK, PipelineNode
 
 
 def test_avg_op_has_correct_type():
@@ -37,6 +39,44 @@ def test_pipeline_node_aggregate():
     assert result._agg_specs[0]["output_field"] == "avg_rating"
     assert result._agg_specs[1]["type"] == "count"
     assert result._agg_specs[1]["output_field"] == "review_count"
+
+
+def test_last_op_has_correct_type():
+    op = Last(of="geo", window="180d")
+    assert op.agg_type == "last"
+    assert op.of == "geo"
+    assert op.dropnull is False
+
+
+def test_lastk_op_has_correct_type_and_defaults():
+    op = LastK(of="product_code", window="3h")
+    assert op.agg_type == "last_k"
+    assert op.k == 100
+    assert op.dedup is False
+    assert op.dropnull is False
+
+
+def test_lastk_rejects_k_below_one():
+    with pytest.raises(ValueError):
+        LastK(of="product_code", window="3h", k=0)
+
+
+def test_aggregate_serializes_last_and_lastk():
+    node = PipelineNode("Events")
+    result = node.groupby("user_id").aggregate(
+        last_geo=Last(of="geo", window="180d", dropnull=True),
+        recent=LastK(of="product_code", window="3h", k=50, dedup=True),
+    )
+    last_spec = result._agg_specs[0]
+    assert last_spec["type"] == "last"
+    assert last_spec["k"] == 1  # Last is implicitly k=1
+    assert last_spec["dropnull"] is True
+
+    lastk_spec = result._agg_specs[1]
+    assert lastk_spec["type"] == "last_k"
+    assert lastk_spec["k"] == 50
+    assert lastk_spec["dedup"] is True
+    assert lastk_spec["dropnull"] is False
 
 
 def test_pipeline_decorator_marks_function():

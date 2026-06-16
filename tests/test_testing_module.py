@@ -10,6 +10,8 @@ import pytest
 from thyme import (
     Avg,
     Count,
+    Last,
+    LastK,
     Max,
     Min,
     Sum,
@@ -135,6 +137,72 @@ class TestCountAggregation:
 
         # Only 1 event within window
         assert result["cnt"] == 1.0
+
+
+class TestLatestAggregation:
+    @staticmethod
+    def _string_source():
+        @dataset(version=1)
+        class StrSource:
+            entity_id: str = field(key=True)
+            geo: str = field()
+            timestamp: datetime = field(timestamp=True)
+        return StrSource
+
+    def test_last_returns_newest_in_window(self):
+        Source = self._string_source()
+
+        @dataset(version=1, index=True)
+        class LastResult:
+            entity_id: str = field(key=True)
+            last_geo: str = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def p(cls, src):
+                return src.groupby("entity_id").aggregate(
+                    last_geo=Last(of="geo", window="180d")
+                )
+
+        now = datetime.now(timezone.utc)
+        events = [
+            {"entity_id": "e1", "geo": "NYC", "timestamp": (now - timedelta(days=2)).isoformat()},
+            {"entity_id": "e1", "geo": "LA", "timestamp": now.isoformat()},
+        ]
+        ctx = MockContext()
+        ctx.add_events(Source, events)
+        result = ctx.get_aggregates(LastResult, "e1")
+        assert result["last_geo"] == "LA"
+
+    def test_lastk_newest_first_with_dedup(self):
+        Source = self._string_source()
+
+        @dataset(version=1, index=True)
+        class LastKResult:
+            entity_id: str = field(key=True)
+            recent: str = field()
+            timestamp: datetime = field(timestamp=True)
+
+            @pipeline(version=1)
+            @inputs(Source)
+            def p(cls, src):
+                return src.groupby("entity_id").aggregate(
+                    recent=LastK(of="geo", window="180d", k=3, dedup=True)
+                )
+
+        now = datetime.now(timezone.utc)
+        events = [
+            {"entity_id": "e1", "geo": "A", "timestamp": (now - timedelta(days=4)).isoformat()},
+            {"entity_id": "e1", "geo": "B", "timestamp": (now - timedelta(days=3)).isoformat()},
+            {"entity_id": "e1", "geo": "A", "timestamp": (now - timedelta(days=2)).isoformat()},
+            {"entity_id": "e1", "geo": "C", "timestamp": now.isoformat()},
+        ]
+        ctx = MockContext()
+        ctx.add_events(Source, events)
+        result = ctx.get_aggregates(LastKResult, "e1")
+        # Newest-first, deduped (A refreshed to its newest occurrence).
+        assert result["recent"] == ["C", "A", "B"]
 
 
 class TestAvgAggregation:

@@ -85,6 +85,49 @@ def test_compile_pipeline_with_aggregate_where_predicate_roundtrips():
     assert spec.HasField("predicate"), "predicate field must round-trip into the proto"
 
 
+def test_compile_pipeline_last_lastk_threads_k_dedup_dropnull():
+    """LastK k/dedup/dropnull must ride the typed proto fields; a plain agg leaves them unset."""
+    from datetime import datetime
+
+    from thyme.dataset import dataset, field, get_registered_pipelines
+    from thyme.pipeline import Last, LastK, pipeline
+
+    @dataset(version=1, index=True)
+    class Events:
+        user_id: str = field(key=True)
+        product: str = field()
+        geo: str = field()
+        timestamp: datetime = field(timestamp=True)
+
+    @dataset(version=1, index=True)
+    class UserSignals:
+        user_id: str = field(key=True)
+        last_geo: str = field()
+        recent: str = field()
+        timestamp: datetime = field(timestamp=True)
+
+        @pipeline(version=1)
+        def compute(cls, events):
+            return events.groupby("user_id").aggregate(
+                last_geo=Last(of="geo", window="180d", dropnull=True),
+                recent=LastK(of="product", window="3h", k=50, dedup=True),
+            )
+
+    proto = compile_pipeline(get_registered_pipelines()[0])
+    specs = {s.output_field: s for s in proto.operators[-1].aggregate.specs}
+
+    last = specs["last_geo"]
+    assert last.agg_type == "last"
+    assert last.k == 1
+    assert last.dropnull is True
+
+    lastk = specs["recent"]
+    assert lastk.agg_type == "last_k"
+    assert lastk.k == 50
+    assert lastk.dedup is True
+    assert lastk.dropnull is False
+
+
 def test_compile_pipeline_with_aggregate():
     pipe_meta = {
         "name": "compute_stats",

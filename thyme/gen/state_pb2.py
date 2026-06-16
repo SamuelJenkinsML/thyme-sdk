@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11thyme/state.proto\x12\x05thyme\"\x96\x04\n\nStateValue\x12\x31\n\x08\x66\x65\x61tures\x18\x01 \x03(\x0b\x32\x1f.thyme.StateValue.FeaturesEntry\x12\x35\n\ndimensions\x18\x02 \x03(\x0b\x32!.thyme.StateValue.DimensionsEntry\x12\x11\n\ttimestamp\x18\x03 \x01(\t\x12\n\n\x02op\x18\x04 \x01(\t\x12-\n\x06\x62\x65\x66ore\x18\x05 \x03(\x0b\x32\x1d.thyme.StateValue.BeforeEntry\x12+\n\x05\x61\x66ter\x18\x06 \x03(\x0b\x32\x1c.thyme.StateValue.AfterEntry\x12\x31\n\x08sketches\x18\x07 \x03(\x0b\x32\x1f.thyme.StateValue.SketchesEntry\x1a/\n\rFeaturesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\x1a\x31\n\x0f\x44imensionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\x1a-\n\x0b\x42\x65\x66oreEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\x1a,\n\nAfterEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\x1a/\n\rSketchesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x0c:\x02\x38\x01\"/\n\x0fTDigestCentroid\x12\x0c\n\x04mean\x18\x01 \x01(\x01\x12\x0e\n\x06weight\x18\x02 \x01(\x01\"N\n\x0bTDigestTile\x12)\n\tcentroids\x18\x01 \x03(\x0b\x32\x16.thyme.TDigestCentroid\x12\x14\n\x0ctotal_weight\x18\x02 \x01(\x01\".\n\x10\x41\x63\x63umulatorValue\x12\x0b\n\x03sum\x18\x01 \x01(\x01\x12\r\n\x05\x63ount\x18\x02 \x01(\x04\"A\n\x10\x44\x65leteQueueEntry\x12\r\n\x05value\x18\x01 \x01(\x01\x12\x11\n\tis_minmax\x18\x02 \x01(\x08\x12\x0b\n\x03seq\x18\x03 \x01(\x04\"i\n\nStateWrite\x12\x13\n\x0b\x65ntity_type\x18\x01 \x01(\t\x12\x11\n\tentity_id\x18\x02 \x01(\t\x12\x10\n\x08ts_bytes\x18\x03 \x01(\x0c\x12\r\n\x05value\x18\x04 \x01(\x0c\x12\x12\n\nis_raw_key\x18\x05 \x01(\x08\"\xcf\x01\n\x0bReplayEntry\x12\x10\n\x08job_name\x18\x01 \x01(\t\x12\x17\n\x0finput_partition\x18\x02 \x01(\x05\x12\x14\n\x0cinput_offset\x18\x03 \x01(\x03\x12\x16\n\x0ewatermark_secs\x18\x04 \x01(\x04\x12!\n\x06writes\x18\x05 \x03(\x0b\x32\x11.thyme.StateWrite\x12*\n\x0finternal_writes\x18\x06 \x03(\x0b\x32\x11.thyme.StateWrite\x12\x18\n\x10internal_deletes\x18\x07 \x03(\x0c\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11thyme/state.proto\x12\x05thyme\"\x87\x05\n\nStateValue\x12\x31\n\x08\x66\x65\x61tures\x18\x01 \x03(\x0b\x32\x1f.thyme.StateValue.FeaturesEntry\x12\x35\n\ndimensions\x18\x02 \x03(\x0b\x32!.thyme.StateValue.DimensionsEntry\x12\x11\n\ttimestamp\x18\x03 \x01(\t\x12\n\n\x02op\x18\x04 \x01(\t\x12-\n\x06\x62\x65\x66ore\x18\x05 \x03(\x0b\x32\x1d.thyme.StateValue.BeforeEntry\x12+\n\x05\x61\x66ter\x18\x06 \x03(\x0b\x32\x1c.thyme.StateValue.AfterEntry\x12\x31\n\x08sketches\x18\x07 \x03(\x0b\x32\x1f.thyme.StateValue.SketchesEntry\x12:\n\rjson_features\x18\x08 \x03(\x0b\x32#.thyme.StateValue.JsonFeaturesEntry\x1a/\n\rFeaturesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\x1a\x31\n\x0f\x44imensionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\x1a-\n\x0b\x42\x65\x66oreEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\x1a,\n\nAfterEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01:\x02\x38\x01\x1a/\n\rSketchesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x0c:\x02\x38\x01\x1a\x33\n\x11JsonFeaturesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"@\n\x0bLatestEntry\x12\x10\n\x08\x65vent_ts\x18\x01 \x01(\x04\x12\x0b\n\x03seq\x18\x02 \x01(\x04\x12\x12\n\nvalue_json\x18\x03 \x01(\x0c\"1\n\nLatestList\x12#\n\x07\x65ntries\x18\x01 \x03(\x0b\x32\x12.thyme.LatestEntry\"/\n\x0fTDigestCentroid\x12\x0c\n\x04mean\x18\x01 \x01(\x01\x12\x0e\n\x06weight\x18\x02 \x01(\x01\"N\n\x0bTDigestTile\x12)\n\tcentroids\x18\x01 \x03(\x0b\x32\x16.thyme.TDigestCentroid\x12\x14\n\x0ctotal_weight\x18\x02 \x01(\x01\".\n\x10\x41\x63\x63umulatorValue\x12\x0b\n\x03sum\x18\x01 \x01(\x01\x12\r\n\x05\x63ount\x18\x02 \x01(\x04\"A\n\x10\x44\x65leteQueueEntry\x12\r\n\x05value\x18\x01 \x01(\x01\x12\x11\n\tis_minmax\x18\x02 \x01(\x08\x12\x0b\n\x03seq\x18\x03 \x01(\x04\"i\n\nStateWrite\x12\x13\n\x0b\x65ntity_type\x18\x01 \x01(\t\x12\x11\n\tentity_id\x18\x02 \x01(\t\x12\x10\n\x08ts_bytes\x18\x03 \x01(\x0c\x12\r\n\x05value\x18\x04 \x01(\x0c\x12\x12\n\nis_raw_key\x18\x05 \x01(\x08\"\xcf\x01\n\x0bReplayEntry\x12\x10\n\x08job_name\x18\x01 \x01(\t\x12\x17\n\x0finput_partition\x18\x02 \x01(\x05\x12\x14\n\x0cinput_offset\x18\x03 \x01(\x03\x12\x16\n\x0ewatermark_secs\x18\x04 \x01(\x04\x12!\n\x06writes\x18\x05 \x03(\x0b\x32\x11.thyme.StateWrite\x12*\n\x0finternal_writes\x18\x06 \x03(\x0b\x32\x11.thyme.StateWrite\x12\x18\n\x10internal_deletes\x18\x07 \x03(\x0c\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -41,28 +41,36 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_STATEVALUE_AFTERENTRY']._serialized_options = b'8\001'
   _globals['_STATEVALUE_SKETCHESENTRY']._loaded_options = None
   _globals['_STATEVALUE_SKETCHESENTRY']._serialized_options = b'8\001'
+  _globals['_STATEVALUE_JSONFEATURESENTRY']._loaded_options = None
+  _globals['_STATEVALUE_JSONFEATURESENTRY']._serialized_options = b'8\001'
   _globals['_STATEVALUE']._serialized_start=29
-  _globals['_STATEVALUE']._serialized_end=563
-  _globals['_STATEVALUE_FEATURESENTRY']._serialized_start=323
-  _globals['_STATEVALUE_FEATURESENTRY']._serialized_end=370
-  _globals['_STATEVALUE_DIMENSIONSENTRY']._serialized_start=372
-  _globals['_STATEVALUE_DIMENSIONSENTRY']._serialized_end=421
-  _globals['_STATEVALUE_BEFOREENTRY']._serialized_start=423
-  _globals['_STATEVALUE_BEFOREENTRY']._serialized_end=468
-  _globals['_STATEVALUE_AFTERENTRY']._serialized_start=470
-  _globals['_STATEVALUE_AFTERENTRY']._serialized_end=514
-  _globals['_STATEVALUE_SKETCHESENTRY']._serialized_start=516
-  _globals['_STATEVALUE_SKETCHESENTRY']._serialized_end=563
-  _globals['_TDIGESTCENTROID']._serialized_start=565
-  _globals['_TDIGESTCENTROID']._serialized_end=612
-  _globals['_TDIGESTTILE']._serialized_start=614
-  _globals['_TDIGESTTILE']._serialized_end=692
-  _globals['_ACCUMULATORVALUE']._serialized_start=694
-  _globals['_ACCUMULATORVALUE']._serialized_end=740
-  _globals['_DELETEQUEUEENTRY']._serialized_start=742
-  _globals['_DELETEQUEUEENTRY']._serialized_end=807
-  _globals['_STATEWRITE']._serialized_start=809
-  _globals['_STATEWRITE']._serialized_end=914
-  _globals['_REPLAYENTRY']._serialized_start=917
-  _globals['_REPLAYENTRY']._serialized_end=1124
+  _globals['_STATEVALUE']._serialized_end=676
+  _globals['_STATEVALUE_FEATURESENTRY']._serialized_start=383
+  _globals['_STATEVALUE_FEATURESENTRY']._serialized_end=430
+  _globals['_STATEVALUE_DIMENSIONSENTRY']._serialized_start=432
+  _globals['_STATEVALUE_DIMENSIONSENTRY']._serialized_end=481
+  _globals['_STATEVALUE_BEFOREENTRY']._serialized_start=483
+  _globals['_STATEVALUE_BEFOREENTRY']._serialized_end=528
+  _globals['_STATEVALUE_AFTERENTRY']._serialized_start=530
+  _globals['_STATEVALUE_AFTERENTRY']._serialized_end=574
+  _globals['_STATEVALUE_SKETCHESENTRY']._serialized_start=576
+  _globals['_STATEVALUE_SKETCHESENTRY']._serialized_end=623
+  _globals['_STATEVALUE_JSONFEATURESENTRY']._serialized_start=625
+  _globals['_STATEVALUE_JSONFEATURESENTRY']._serialized_end=676
+  _globals['_LATESTENTRY']._serialized_start=678
+  _globals['_LATESTENTRY']._serialized_end=742
+  _globals['_LATESTLIST']._serialized_start=744
+  _globals['_LATESTLIST']._serialized_end=793
+  _globals['_TDIGESTCENTROID']._serialized_start=795
+  _globals['_TDIGESTCENTROID']._serialized_end=842
+  _globals['_TDIGESTTILE']._serialized_start=844
+  _globals['_TDIGESTTILE']._serialized_end=922
+  _globals['_ACCUMULATORVALUE']._serialized_start=924
+  _globals['_ACCUMULATORVALUE']._serialized_end=970
+  _globals['_DELETEQUEUEENTRY']._serialized_start=972
+  _globals['_DELETEQUEUEENTRY']._serialized_end=1037
+  _globals['_STATEWRITE']._serialized_start=1039
+  _globals['_STATEWRITE']._serialized_end=1144
+  _globals['_REPLAYENTRY']._serialized_start=1147
+  _globals['_REPLAYENTRY']._serialized_end=1354
 # @@protoc_insertion_point(module_scope)
