@@ -6,6 +6,7 @@ parity is preserved with the production Rust interpreter.
 
 from __future__ import annotations
 
+import json as _json
 from typing import Any
 
 from thyme.gen import expr_pb2
@@ -37,7 +38,30 @@ def eval_derivation(derivation: expr_pb2.Derivation, record: dict[str, Any]) -> 
         if value is None:
             return _eval_literal(derivation.fill_null.default)
         return value
+    if kind == "json_extract":
+        return _eval_json_extract(derivation.json_extract, record)
     raise ValueError(f"unknown derivation kind: {kind!r}")
+
+
+def _eval_json_extract(je: expr_pb2.JsonExtract, record: dict[str, Any]) -> Any:
+    """Mirror ``eval_json_extract`` in ``crates/engine/src/expr.rs``.
+
+    Parse the source if it is a stringified-JSON blob, walk a dotted object
+    path, and return ``None`` on any miss (missing key, non-object
+    intermediate, parse failure, or JSON null).
+    """
+    value = eval_derivation(je.value, record)
+    if isinstance(value, str):
+        try:
+            value = _json.loads(value)
+        except (ValueError, TypeError):
+            return None
+    cur: Any = value
+    for segment in je.path.split("."):
+        if not isinstance(cur, dict) or segment not in cur:
+            return None
+        cur = cur[segment]
+    return cur
 
 
 def eval_predicate(predicate: expr_pb2.Predicate, record: dict[str, Any]) -> bool:

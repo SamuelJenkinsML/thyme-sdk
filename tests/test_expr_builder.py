@@ -137,3 +137,37 @@ class TestNull:
         # is_null only makes sense on a bare column reference in v1
         with pytest.raises(TypeError):
             (col("a") * col("b")).is_null()
+
+
+class TestJsonExtract:
+    def test_builds_json_extract_derivation(self):
+        # Given a column holding JSON, when json_extract is applied
+        # Then the derivation carries the nested value + dotted path
+        d = col("custom_data").json_extract("gbv").to_proto()
+        assert d.WhichOneof("kind") == "json_extract"
+        assert d.json_extract.value.column_ref == "custom_data"
+        assert d.json_extract.path == "gbv"
+
+    def test_eval_stringified_blob_number(self):
+        # TH-202: gbv lives inside a stringified-JSON custom_data column.
+        from thyme.testing._expr_eval import eval_derivation
+
+        d = col("custom_data").json_extract("gbv").to_proto()
+        record = {"custom_data": '{"gbv": 249.99, "clickType": "META"}'}
+        assert eval_derivation(d, record) == pytest.approx(249.99)
+
+    def test_eval_nested_object_path(self):
+        # TH-160: entity key nested in an object that survived ingestion.
+        from thyme.testing._expr_eval import eval_derivation
+
+        d = col("identifiers").json_extract("MVI").to_proto()
+        record = {"identifiers": {"MTA": "user-123", "MVI": "visitor-456"}}
+        assert eval_derivation(d, record) == "visitor-456"
+
+    def test_eval_missing_and_bad_json_are_none(self):
+        from thyme.testing._expr_eval import eval_derivation
+
+        missing = col("custom_data").json_extract("absent").to_proto()
+        assert eval_derivation(missing, {"custom_data": '{"gbv": 1.0}'}) is None
+        bad = col("custom_data").json_extract("gbv").to_proto()
+        assert eval_derivation(bad, {"custom_data": "not json {{"}) is None

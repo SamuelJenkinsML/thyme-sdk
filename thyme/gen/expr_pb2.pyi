@@ -83,16 +83,18 @@ class LogicOp(_message.Message):
     def __init__(self, kind: _Optional[_Union[LogicKind, str]] = ..., operands: _Optional[_Iterable[_Union[Predicate, _Mapping]]] = ...) -> None: ...
 
 class Derivation(_message.Message):
-    __slots__ = ("column_ref", "literal", "arith", "fill_null")
+    __slots__ = ("column_ref", "literal", "arith", "fill_null", "json_extract")
     COLUMN_REF_FIELD_NUMBER: _ClassVar[int]
     LITERAL_FIELD_NUMBER: _ClassVar[int]
     ARITH_FIELD_NUMBER: _ClassVar[int]
     FILL_NULL_FIELD_NUMBER: _ClassVar[int]
+    JSON_EXTRACT_FIELD_NUMBER: _ClassVar[int]
     column_ref: str
     literal: Literal
     arith: Arith
     fill_null: FillNull
-    def __init__(self, column_ref: _Optional[str] = ..., literal: _Optional[_Union[Literal, _Mapping]] = ..., arith: _Optional[_Union[Arith, _Mapping]] = ..., fill_null: _Optional[_Union[FillNull, _Mapping]] = ...) -> None: ...
+    json_extract: JsonExtract
+    def __init__(self, column_ref: _Optional[str] = ..., literal: _Optional[_Union[Literal, _Mapping]] = ..., arith: _Optional[_Union[Arith, _Mapping]] = ..., fill_null: _Optional[_Union[FillNull, _Mapping]] = ..., json_extract: _Optional[_Union[JsonExtract, _Mapping]] = ...) -> None: ...
 
 class Arith(_message.Message):
     __slots__ = ("op", "lhs", "rhs")
@@ -111,6 +113,14 @@ class FillNull(_message.Message):
     value: Derivation
     default: Literal
     def __init__(self, value: _Optional[_Union[Derivation, _Mapping]] = ..., default: _Optional[_Union[Literal, _Mapping]] = ...) -> None: ...
+
+class JsonExtract(_message.Message):
+    __slots__ = ("value", "path")
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    value: Derivation
+    path: str
+    def __init__(self, value: _Optional[_Union[Derivation, _Mapping]] = ..., path: _Optional[str] = ...) -> None: ...
 
 class Literal(_message.Message):
     __slots__ = ("int_value", "float_value", "string_value", "bool_value")
