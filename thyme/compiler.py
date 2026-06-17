@@ -287,10 +287,14 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
             dtype = schema_pb2.DataType(
                 optional_type=schema_pb2.OptionalType(inner=dtype)
             )
-        features.append(featureset_pb2.Feature(
-            name=f["name"],
-            dtype=dtype,
-        ))
+        feature_kwargs = {"name": f["name"], "dtype": dtype}
+        # Request-time feature (TH-216): carry the marker + optional default into
+        # the proto so the CLI's proto commit path doesn't silently drop them.
+        if f.get("request"):
+            feature_kwargs["request"] = True
+            if f.get("default") is not None:
+                feature_kwargs["default"] = _literal_pb_for_default(f.get("default"))
+        features.append(featureset_pb2.Feature(**feature_kwargs))
 
     extractors = []
     for ext in fs_meta.get("extractors", []):

@@ -35,12 +35,16 @@ class Featureset(_message.Message):
     def __init__(self, name: _Optional[str] = ..., features: _Optional[_Iterable[_Union[Feature, _Mapping]]] = ..., extractors: _Optional[_Iterable[_Union[Extractor, _Mapping]]] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., metadata: _Optional[_Union[_metadata_pb2.EntityMetadata, _Mapping]] = ...) -> None: ...
 
 class Feature(_message.Message):
-    __slots__ = ("name", "dtype")
+    __slots__ = ("name", "dtype", "request", "default")
     NAME_FIELD_NUMBER: _ClassVar[int]
     DTYPE_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_FIELD_NUMBER: _ClassVar[int]
     name: str
     dtype: _schema_pb2.DataType
-    def __init__(self, name: _Optional[str] = ..., dtype: _Optional[_Union[_schema_pb2.DataType, _Mapping]] = ...) -> None: ...
+    request: bool
+    default: _expr_pb2.Literal
+    def __init__(self, name: _Optional[str] = ..., dtype: _Optional[_Union[_schema_pb2.DataType, _Mapping]] = ..., request: bool = ..., default: _Optional[_Union[_expr_pb2.Literal, _Mapping]] = ...) -> None: ...
 
 class Extractor(_message.Message):
     __slots__ = ("name", "inputs", "outputs", "deps", "pycode", "version", "kind", "lookup_info")

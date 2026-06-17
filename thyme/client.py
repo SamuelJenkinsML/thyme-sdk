@@ -156,12 +156,18 @@ class ThymeClient:
         self,
         featureset: type,
         entity_id: str,
+        inputs: dict | None = None,
     ) -> ThymeResult:
         """Online feature query for a single entity.
 
         Args:
             featureset: A @featureset-decorated class.
             entity_id: The entity to query features for.
+            inputs: Values for the featureset's ``request=True`` features
+                (TH-216), keyed by feature name. When provided, the query is
+                sent over ``POST /features`` so the values can ride in the body
+                (GET cannot carry them). Request features without a default
+                must be supplied here.
 
         Returns:
             ThymeResult with a single row of feature values.
@@ -173,10 +179,20 @@ class ThymeClient:
         fs_name = meta["name"]
         schema = schema_from_featureset(meta)
 
-        response = self._http.get(
-            "/features",
-            params={"featureset": fs_name, "entity_id": entity_id},
-        )
+        if inputs:
+            response = self._http.post(
+                "/features",
+                json={
+                    "featureset": fs_name,
+                    "entity_id": entity_id,
+                    "inputs": inputs,
+                },
+            )
+        else:
+            response = self._http.get(
+                "/features",
+                params={"featureset": fs_name, "entity_id": entity_id},
+            )
         response.raise_for_status()
         data = response.json()
 
