@@ -276,6 +276,94 @@ def test_extractor_empty_inputs_outputs_allowed():
 
 
 # ---------------------------------------------------------------------------
+# Request-time features (TH-216) — feature(request=True)
+# ---------------------------------------------------------------------------
+
+
+def test_feature_request_marks_feature_as_request():
+    @featureset
+    class WithRequest:
+        user_id: str = feature()
+        os_family: str = feature(request=True)
+
+    fs = get_registered_featuresets()
+    feats = {f["name"]: f for f in fs["WithRequest"]["features"]}
+    assert feats["os_family"]["request"] is True
+    # A plain feature carries no request marker.
+    assert "request" not in feats["user_id"]
+    # A request feature is a plan leaf — it synthesizes no extractor.
+    assert fs["WithRequest"]["extractors"] == []
+
+
+def test_feature_request_with_default_stores_default():
+    @featureset
+    class WithRequestDefault:
+        user_id: str = feature()
+        os_family: str = feature(request=True, default="UNKNOWN")
+
+    fs = get_registered_featuresets()
+    feats = {f["name"]: f for f in fs["WithRequestDefault"]["features"]}
+    assert feats["os_family"]["request"] is True
+    assert feats["os_family"]["default"] == "UNKNOWN"
+
+
+def test_feature_request_without_default_omits_default_field():
+    @featureset
+    class NoReqDefault:
+        user_id: str = feature()
+        os_family: str = feature(request=True)
+
+    fs = get_registered_featuresets()
+    feats = {f["name"]: f for f in fs["NoReqDefault"]["features"]}
+    assert "default" not in feats["os_family"]
+
+
+def test_feature_request_rejects_ref():
+    # request and ref are mutually exclusive: a request feature is supplied by
+    # the caller, not looked up from a dataset.
+    with pytest.raises(ValueError, match="request"):
+        @featureset
+        class Bad:
+            user_id: str = feature()
+            wrong: str = feature(request=True, ref=_UserProfile.loyalty_tier)
+
+
+def test_feature_request_cannot_be_extractor_output():
+    # A request feature has no producer — an extractor cannot output it.
+    with pytest.raises(ValueError, match="request"):
+        @featureset
+        class Bad:
+            user_id: str = feature()
+            os_family: str = feature(request=True)
+
+            @extractor
+            @extractor_inputs("user_id")
+            @extractor_outputs("os_family")
+            def compute(cls, ts, user_id):
+                return "iOS"
+
+
+def test_request_feature_valid_as_extractor_input():
+    # A request feature is a valid extractor input (the on-demand-compute path:
+    # request value + state, combined in one PY_FUNC extractor).
+    @featureset
+    class Score:
+        user_id: str = feature()
+        os_family: str = feature(request=True)
+        relevance: float = feature()
+
+        @extractor
+        @extractor_inputs("os_family")
+        @extractor_outputs("relevance")
+        def score(cls, ts, os_family):
+            return 1.0 if os_family == "iOS" else 0.0
+
+    fs = get_registered_featuresets()
+    kinds = {e["kind"] for e in fs["Score"]["extractors"]}
+    assert kinds == {EXTRACTOR_KIND_PY_FUNC}
+
+
+# ---------------------------------------------------------------------------
 # Cross-featureset inputs (TH-157 / A2a) — object-reference syntax
 # ---------------------------------------------------------------------------
 

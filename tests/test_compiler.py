@@ -186,6 +186,31 @@ def test_compile_featureset():
     assert proto.extractors[0].pycode.entry_point == "compute_highly_rated"
 
 
+def test_compile_featureset_request_feature_roundtrips():
+    """A request=True feature (TH-216) carries its marker and optional default
+    into the proto Feature so the CLI's proto commit path doesn't drop them."""
+    fs_meta = {
+        "name": "ScoreFeatures",
+        "features": [
+            {"name": "user_id", "dtype": "str"},
+            {"name": "os_family", "dtype": "str", "request": True, "default": "UNKNOWN"},
+            {"name": "platform", "dtype": "str", "request": True},
+            {"name": "score", "dtype": "float"},
+        ],
+        "extractors": [],
+    }
+    proto = compile_featureset(fs_meta)
+    by_name = {f.name: f for f in proto.features}
+    # request marker survives
+    assert by_name["os_family"].request is True
+    assert by_name["platform"].request is True
+    assert by_name["user_id"].request is False
+    # default survives as a proto Literal
+    assert by_name["os_family"].HasField("default")
+    assert by_name["os_family"].default.string_value == "UNKNOWN"
+    assert not by_name["platform"].HasField("default")
+
+
 def test_compile_featureset_preserves_cross_featureset_fqn_input():
     """A fully-qualified cross-featureset input (TH-157 / A2a) serializes
     through the existing `repeated string inputs` proto field unchanged — proves

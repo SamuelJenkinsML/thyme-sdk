@@ -32,6 +32,11 @@ class FeatureDef:
 
     name: str
     dtype: str
+    # Request-time feature marker + optional default (TH-216). Mirror the Rust
+    # FeatureDef so the flags survive into spec_json; omitted from the payload
+    # when unset (the Rust side serde-defaults them).
+    request: bool = False
+    default: Any = None
 
 
 @dataclass
@@ -175,7 +180,12 @@ def _to_metadata(meta: dict | None) -> MetadataDef:
 
 def _to_featureset(fs: dict) -> FeaturesetDef:
     features = [
-        FeatureDef(name=f["name"], dtype=f["dtype"])
+        FeatureDef(
+            name=f["name"],
+            dtype=f["dtype"],
+            request=f.get("request", False),
+            default=f.get("default"),
+        )
         for f in fs.get("features", [])
     ]
     extractors = [_to_extractor(ext) for ext in fs.get("extractors", [])]

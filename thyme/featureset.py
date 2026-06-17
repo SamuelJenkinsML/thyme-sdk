@@ -32,10 +32,12 @@ class FeatureDescriptor:
         ref: Field | None = None,
         default: Any = None,
         dtype: Optional[str] = None,
+        request: bool = False,
     ):
         self.ref = ref
         self.default = default
         self.dtype = dtype
+        self.request = request
 
 
 class FeatureRef:
@@ -67,11 +69,14 @@ class FeatureRef:
 @overload
 def feature(*, ref: Field[T], default: T | None = None) -> T: ...
 @overload
+def feature(*, request: bool, default: Any = None) -> Any: ...
+@overload
 def feature() -> Any: ...
 def feature(
     *,
     ref: Field | None = None,
     default: Any = None,
+    request: bool = False,
 ) -> Any:
     """Declare a feature on a featureset.
 
@@ -80,10 +85,21 @@ def feature(
             When set, the SDK auto-generates a LOOKUP-kind extractor that
             pulls this field from the named dataset at query time. No body
             required.
-        default: Value to return when the dataset lookup misses (the entity
-            has no row in the dataset). Only meaningful with ``ref``.
+        default: Value to use on miss. With ``ref`` it is returned when the
+            dataset lookup misses; with ``request=True`` it is used when the
+            caller omits the value from the query ``inputs``.
+        request: Mark this as a request-time feature (TH-216): its value is
+            supplied per query via the ``inputs`` payload, not read from
+            state. A request feature has no producer — it cannot also take a
+            ``ref`` nor be an extractor output, but it may feed extractors as
+            an input (request value + state, combined in one PY_FUNC).
     """
-    return FeatureDescriptor(ref=ref, default=default)
+    if request and ref is not None:
+        raise ValueError(
+            "feature(request=True) cannot also take ref=...: a request feature "
+            "is supplied by the caller, not looked up from a dataset."
+        )
+    return FeatureDescriptor(ref=ref, default=default, request=request)
 
 
 class Extractor:
@@ -166,6 +182,13 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
             }
             if _is_optional(attr_type):
                 entry["optional"] = True
+            # Request-time feature (TH-216): supplied per query via `inputs`,
+            # never read from state. The planner treats it as a plan leaf; an
+            # optional default fills in when the caller omits it.
+            if default.request:
+                entry["request"] = True
+                if default.default is not None:
+                    entry["default"] = _literal_for_default(default.default)
             features.append(entry)
             feature_descriptors[attr_name] = default
 
@@ -228,6 +251,7 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
 
     # Validate extractor input/output feature references
     feature_names = {f["name"] for f in features}
+    request_feature_names = {f["name"] for f in features if f.get("request")}
     for ext in extractors:
         for inp in ext["inputs"]:
             # Cross-featureset inputs are fully-qualified (`Featureset.feature`)
@@ -247,6 +271,13 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
                     f"Extractor '{ext['name']}' in featureset '{cls.__name__}' references "
                     f"output feature '{out}' which is not declared in the featureset. "
                     f"Declared features: {sorted(feature_names)}"
+                )
+            if out in request_feature_names:
+                raise ValueError(
+                    f"Extractor '{ext['name']}' in featureset '{cls.__name__}' outputs "
+                    f"'{out}', which is a request=True feature. A request feature is "
+                    f"supplied by the caller and has no producer — it cannot be an "
+                    f"extractor output."
                 )
 
     schema = {
