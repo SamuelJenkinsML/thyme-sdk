@@ -742,3 +742,41 @@ def test_compile_dataset_without_retention_leaves_it_empty():
     proto = compile_dataset(ds_meta)
     # proto3 scalar default — the server reads empty as "not specified".
     assert proto.retention == ""
+
+
+# ---------------------------------------------------------------------------
+# TH-306: opting in to a destructive retention change
+# ---------------------------------------------------------------------------
+
+
+def test_compile_commit_request_carries_allow_retention_narrowing():
+    # Given/When: a commit that opts in to shortening a topic's retention
+    proto = compile_commit_request(
+        message="",
+        datasets=[],
+        pipelines=[],
+        featuresets=[],
+        sources=[],
+        allow_retention_narrowing=True,
+    )
+
+    # Then: it reaches the wire. compile_commit_request names every field
+    # explicitly, so a flag added to the CLI but not here is silently dropped —
+    # and the failure mode is a commit that quietly does not narrow, which looks
+    # exactly like the bug TH-306 exists to fix.
+    assert proto.allow_retention_narrowing is True
+
+
+def test_compile_commit_request_defaults_to_not_narrowing():
+    # Given/When: a commit that says nothing about retention
+    proto = compile_commit_request(
+        message="",
+        datasets=[],
+        pipelines=[],
+        featuresets=[],
+        sources=[],
+    )
+
+    # Then: the safe direction. Callers that predate the flag, and anyone who
+    # simply did not think about it, cannot delete history by omission.
+    assert proto.allow_retention_narrowing is False

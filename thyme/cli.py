@@ -116,6 +116,16 @@ def commit(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print payload instead of POSTing"),
     output: Optional[Path] = typer.Option(None, "--output", help="Write payload to file (with --dry-run)"),
     api_url: Optional[str] = typer.Option(None, "--api-url", envvar="THYME_API_URL", help="Control plane API URL"),
+    allow_retention_narrowing: bool = typer.Option(
+        False,
+        "--allow-retention-narrowing",
+        help=(
+            "Permit this commit to SHORTEN an existing topic's retention. "
+            "The broker deletes every segment outside the new window on its "
+            "next sweep and nothing brings them back, so commits refuse to do "
+            "it unless you ask here."
+        ),
+    ),
 ) -> None:
     """Import feature module, serialize datasets, and POST to control plane (or dry-run)."""
     if module is None and path is None:
@@ -138,6 +148,11 @@ def commit(
         raise typer.Exit(1)
 
     payload = get_commit_payload()
+    # Set on the payload rather than inside get_commit_payload(): this is a
+    # property of *this invocation*, not of the registered definitions, and the
+    # JSON path must carry it too or the fallback would silently drop the
+    # opt-in and the server would refuse a narrowing the user did ask for.
+    payload["allow_retention_narrowing"] = allow_retention_narrowing
     payload_json = json.dumps(payload, indent=2)
 
     if dry_run:
@@ -172,6 +187,7 @@ def commit(
                 pipelines=raw_pipelines,
                 featuresets=payload["featuresets"],
                 sources=payload["sources"],
+                allow_retention_narrowing=allow_retention_narrowing,
             )
             proto_bytes = proto_msg.SerializeToString()
         except Exception as e:

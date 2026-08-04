@@ -424,13 +424,18 @@ def compile_commit_request(
     pipelines: List[dict],
     featuresets: List[dict],
     sources: List[dict],
+    allow_retention_narrowing: bool = False,
 ) -> services_pb2.CommitRequest:
+    # `allow_retention_narrowing` defaults to False rather than being required:
+    # shortening a topic's retention deletes history irreversibly, so a caller
+    # that has not thought about it must get the harmless behaviour (TH-306).
     return services_pb2.CommitRequest(
         message=message,
         datasets=[compile_dataset(d) for d in datasets],
         pipelines=[compile_pipeline(p) for p in pipelines],
         featuresets=[compile_featureset(f) for f in featuresets],
         sources=[compile_source(s) for s in sources],
+        allow_retention_narrowing=allow_retention_narrowing,
     )
 
 
