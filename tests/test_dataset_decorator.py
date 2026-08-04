@@ -102,3 +102,58 @@ def test_dataset_unknown_kwarg_warns_but_registers():
         cls = _make_dataset_with(index=True, version=1, future_kwarg="y")
     assert "MetaDataset" in get_registered_datasets()
     assert cls.__thyme_metadata__ == cls.__thyme_metadata__  # attribute exists
+
+
+# ---------------------------------------------------------------------------
+# Retention — backfill depth for the dataset's topic (TH-183)
+# ---------------------------------------------------------------------------
+
+
+def test_dataset_retention_lands_in_schema():
+    # Given / When: a dataset declares how far back its history is kept
+    _make_dataset_with(index=True, version=1, retention="180d")
+
+    # Then: the value rides in the schema the commit payload is built from
+    meta = get_registered_datasets()["MetaDataset"]
+    assert meta["retention"] == "180d"
+
+
+def test_dataset_retention_is_an_explicit_param_not_an_unknown_kwarg():
+    # Given / When: retention is passed
+    # Then: no FutureWarning — it must be a real parameter, not swept into
+    # **kwargs and dropped by _build_metadata (the failure mode this guards).
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        _make_dataset_with(index=True, version=1, retention="30d")
+
+
+def test_dataset_without_retention_omits_the_key():
+    # Given / When: no retention is declared
+    _make_dataset_with(index=True, version=1)
+
+    # Then: the key is absent rather than None, so the server can distinguish
+    # "not specified" (use the deployment default) from an explicit value.
+    meta = get_registered_datasets()["MetaDataset"]
+    assert "retention" not in meta
+
+
+@pytest.mark.parametrize("bad", ["30 fortnights", "forever", "d30", "", "0d"])
+def test_dataset_rejects_unparseable_retention(bad):
+    # Given / When: a retention that no duration parser can read
+    # Then: it fails at decoration time, not silently at topic-creation time.
+    # The server turns this into retention.ms; a value that parses to 0 would
+    # delete every sealed segment on the next retention sweep.
+    with pytest.raises(ValueError, match="retention"):
+        _make_dataset_with(index=True, version=1, retention=bad)
+
+
+@pytest.mark.parametrize("good", ["30d", "12h", "90m", "3600s", "365d"])
+def test_dataset_accepts_supported_duration_units(good):
+    # Given / When: any unit the engine's duration parser understands
+    _make_dataset_with(index=True, version=1, retention=good)
+
+    # Then: it round-trips verbatim — the server owns the conversion to ms, so
+    # the SDK must not normalise and lose the author's intent.
+    assert get_registered_datasets()["MetaDataset"]["retention"] == good

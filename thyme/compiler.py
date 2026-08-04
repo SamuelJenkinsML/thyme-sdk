@@ -123,6 +123,9 @@ def compile_dataset(ds_meta: dict) -> dataset_pb2.Dataset:
         indexed=ds_meta.get("index", False),
         expectations=expectations,
         metadata=_make_metadata(ds_meta.get("metadata")),
+        # Empty string when unspecified — the server reads that as "use the
+        # deployment default" rather than "retain nothing".
+        retention=ds_meta.get("retention", ""),
     )
 
 

@@ -28,6 +28,22 @@ def list_topics(brokers: str) -> list[str]:
     return list(admin.list_topics(timeout=10).topics.keys())
 
 
+def describe_topic_config(brokers: str, topic: str) -> dict[str, str]:
+    """Return a topic's effective configuration as ``{name: value}``.
+
+    Lets a test assert what the broker *actually* recorded rather than what the
+    commit payload said — the only way to catch a value being dropped somewhere
+    between the SDK decorator and the AdminClient call.
+    """
+    from confluent_kafka.admin import ConfigResource
+
+    admin = _admin(brokers)
+    resource = ConfigResource(ConfigResource.Type.TOPIC, topic)
+    futures = admin.describe_configs([resource])
+    entries = futures[resource].result(timeout=10)
+    return {name: entry.value for name, entry in entries.items()}
+
+
 def delete_topics(brokers: str, topics: list[str]) -> None:
     """Delete the given topics; silently ignores ones that don't exist."""
     if not topics:
