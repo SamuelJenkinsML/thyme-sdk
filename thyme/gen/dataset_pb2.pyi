@@ -11,7 +11,7 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class Dataset(_message.Message):
-    __slots__ = ("name", "version", "schema", "indexed", "pycode", "expectations", "metadata")
+    __slots__ = ("name", "version", "schema", "indexed", "pycode", "expectations", "metadata", "retention")
     NAME_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     SCHEMA_FIELD_NUMBER: _ClassVar[int]
@@ -19,6 +19,7 @@ class Dataset(_message.Message):
     PYCODE_FIELD_NUMBER: _ClassVar[int]
     EXPECTATIONS_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
+    RETENTION_FIELD_NUMBER: _ClassVar[int]
     name: str
     version: int
     schema: _schema_pb2.DSSchema
@@ -26,7 +27,8 @@ class Dataset(_message.Message):
     pycode: _pycode_pb2.PyCode
     expectations: _containers.RepeatedCompositeFieldContainer[Expectation]
     metadata: _metadata_pb2.EntityMetadata
-    def __init__(self, name: _Optional[str] = ..., version: _Optional[int] = ..., schema: _Optional[_Union[_schema_pb2.DSSchema, _Mapping]] = ..., indexed: bool = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., expectations: _Optional[_Iterable[_Union[Expectation, _Mapping]]] = ..., metadata: _Optional[_Union[_metadata_pb2.EntityMetadata, _Mapping]] = ...) -> None: ...
+    retention: str
+    def __init__(self, name: _Optional[str] = ..., version: _Optional[int] = ..., schema: _Optional[_Union[_schema_pb2.DSSchema, _Mapping]] = ..., indexed: bool = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., expectations: _Optional[_Iterable[_Union[Expectation, _Mapping]]] = ..., metadata: _Optional[_Union[_metadata_pb2.EntityMetadata, _Mapping]] = ..., retention: _Optional[str] = ...) -> None: ...
 
 class Expectation(_message.Message):
     __slots__ = ("type", "column", "mostly", "min_value", "max_value", "values", "type_name")

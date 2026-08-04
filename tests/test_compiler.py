@@ -706,3 +706,39 @@ def test_compile_featureset_handles_empty_metadata_dict():
     }
     proto = compile_featureset(fs_meta)
     assert not proto.HasField("metadata")
+
+
+def test_compile_dataset_carries_retention():
+    # Given: a dataset schema with a declared retention
+    ds_meta = {
+        "name": "Order",
+        "version": 1,
+        "index": True,
+        "fields": [
+            {"name": "user_id", "type": "str", "key": True},
+            {"name": "ts", "type": "datetime", "timestamp": True},
+        ],
+        "dependencies": [],
+        "retention": "180d",
+    }
+
+    # When: compiled to protobuf
+    proto = compile_dataset(ds_meta)
+
+    # Then: it survives. compile_dataset names every field explicitly, so a new
+    # schema key is dropped on this path unless it is added here — the JSON path
+    # would carry it and the proto path would silently not.
+    assert proto.retention == "180d"
+
+
+def test_compile_dataset_without_retention_leaves_it_empty():
+    ds_meta = {
+        "name": "Order",
+        "version": 1,
+        "index": True,
+        "fields": [{"name": "user_id", "type": "str", "key": True}],
+        "dependencies": [],
+    }
+    proto = compile_dataset(ds_meta)
+    # proto3 scalar default — the server reads empty as "not specified".
+    assert proto.retention == ""

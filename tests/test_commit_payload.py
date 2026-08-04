@@ -143,3 +143,35 @@ def test_bare_decorators_produce_empty_metadata_block():
         assert meta["tags"] == {}
         assert meta["project"] is None
         assert meta["deprecated"] is False
+
+
+def test_dataset_retention_round_trips_through_json_payload():
+    # Given: a dataset that declares how deep its history goes
+    @dataset(index=True, version=1, retention="180d")
+    class RetainedOrder:
+        user_id: int = field(key=True)
+        amount: float = field()
+        from datetime import datetime as _dt
+        ts: _dt = field(timestamp=True)
+
+    # When: the JSON commit payload is built
+    payload = get_commit_payload()
+    json.dumps(payload)  # must be JSON-encodable end to end
+
+    # Then: retention reaches the server, which maps it to the topic's
+    # retention.ms at creation time.
+    assert payload["datasets"][0]["retention"] == "180d"
+
+
+def test_dataset_without_retention_omits_it_from_json_payload():
+    # Given: a dataset that says nothing about retention
+    @dataset(index=True, version=1)
+    class DefaultRetentionOrder:
+        user_id: int = field(key=True)
+        from datetime import datetime as _dt
+        ts: _dt = field(timestamp=True)
+
+    # When / Then: the key is absent, so the server applies its own default
+    # rather than receiving a null it has to interpret.
+    payload = get_commit_payload()
+    assert "retention" not in payload["datasets"][0]

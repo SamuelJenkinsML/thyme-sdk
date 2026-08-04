@@ -156,6 +156,41 @@ _DATASET_REGISTRY: dict[str, dict] = {}
 _PIPELINE_REGISTRY: dict[tuple[str, str], dict] = {}
 
 
+_DURATION_UNITS = {"d": 86400, "h": 3600, "m": 60, "s": 1}
+
+
+def _validate_retention(retention: str) -> str:
+    """Check a retention duration is one the server can actually parse.
+
+    The server turns this into the topic's `retention.ms`. Its parser yields 0
+    for anything it doesn't recognise, and `retention.ms=0` would drop every
+    sealed segment on the next retention sweep — so a typo has to fail here, at
+    decoration time, rather than quietly at topic-creation time.
+
+    Returned verbatim: the server owns the conversion to milliseconds, and
+    normalising here would lose the author's intent for no benefit.
+    """
+    if not isinstance(retention, str):
+        raise ValueError(
+            f"retention must be a duration string like '30d', got {retention!r}"
+        )
+
+    value = retention.strip()
+    unit = value[-1:] if value else ""
+    if unit not in _DURATION_UNITS or not value[:-1].isdigit():
+        raise ValueError(
+            f"retention={retention!r} is not a valid duration — expected an "
+            f"integer followed by one of {''.join(sorted(_DURATION_UNITS))} "
+            f"(e.g. '30d', '12h')"
+        )
+    if int(value[:-1]) == 0:
+        raise ValueError(
+            f"retention={retention!r} is zero — this would delete the dataset's "
+            f"history immediately. Omit retention to use the deployment default."
+        )
+    return value
+
+
 def _build_schema(cls: type, index: bool, version: int) -> dict:
     """Build full schema from class annotations and field descriptors."""
     schema_fields = []
@@ -261,14 +296,32 @@ def _discover_pipelines(cls: type) -> None:
 
 
 @dataclass_transform(field_specifiers=(field,))
-def dataset(index: bool = False, version: int = 1, **kwargs):
+def dataset(
+    index: bool = False,
+    version: int = 1,
+    retention: str | None = None,
+    **kwargs,
+):
     """Decorator to register a class as a dataset with schema metadata.
+
+    `retention` is how long the dataset's history is kept on its topic — a
+    duration string like ``"180d"``. Because the topic is the durable system of
+    record for a source dataset, this **is** the dataset's backfill depth: you
+    cannot backfill a new feature over history the topic no longer holds. Omit
+    it to take the deployment default (`THYME_ROOT_RETENTION`, 30d).
+
+    It must be an explicit parameter rather than a catalog kwarg: `**kwargs`
+    are handed to `_build_metadata`, which drops anything it doesn't recognise
+    with a `FutureWarning` — a silent way to lose months of history.
 
     Catalog metadata kwargs (`description`, `owner`, `tags`, `project`,
     `deprecated`, `deprecation_reason`, `replacement`) are stashed on the
     class as `__thyme_metadata__`. Unknown kwargs trigger a `FutureWarning`."""
     from thyme.metadata import _build_metadata
     metadata = _build_metadata("dataset", kwargs)
+    validated_retention = (
+        _validate_retention(retention) if retention is not None else None
+    )
 
     def wrapper(cls):
         # Apply dataclass first so we can use fields()
@@ -276,6 +329,10 @@ def dataset(index: bool = False, version: int = 1, **kwargs):
         _validate_dataset_fields(cls)
         schema = _build_schema(cls, index=index, version=version)
         schema["metadata"] = asdict(metadata)
+        # Absent, not None: the server distinguishes "not specified" (use the
+        # deployment default) from an explicit value.
+        if validated_retention is not None:
+            schema["retention"] = validated_retention
         _DATASET_REGISTRY[cls.__name__] = schema
         cls._dataset_meta = schema
         cls.__thyme_metadata__ = metadata
