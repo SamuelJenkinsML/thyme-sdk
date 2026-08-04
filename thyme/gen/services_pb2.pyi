@@ -10,18 +10,20 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class CommitRequest(_message.Message):
-    __slots__ = ("message", "datasets", "pipelines", "featuresets", "sources")
+    __slots__ = ("message", "datasets", "pipelines", "featuresets", "sources", "allow_retention_narrowing")
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     DATASETS_FIELD_NUMBER: _ClassVar[int]
     PIPELINES_FIELD_NUMBER: _ClassVar[int]
     FEATURESETS_FIELD_NUMBER: _ClassVar[int]
     SOURCES_FIELD_NUMBER: _ClassVar[int]
+    ALLOW_RETENTION_NARROWING_FIELD_NUMBER: _ClassVar[int]
     message: str
     datasets: _containers.RepeatedCompositeFieldContainer[_dataset_pb2.Dataset]
     pipelines: _containers.RepeatedCompositeFieldContainer[_dataset_pb2.Pipeline]
     featuresets: _containers.RepeatedCompositeFieldContainer[_featureset_pb2.Featureset]
     sources: _containers.RepeatedCompositeFieldContainer[_connector_pb2.Source]
-    def __init__(self, message: _Optional[str] = ..., datasets: _Optional[_Iterable[_Union[_dataset_pb2.Dataset, _Mapping]]] = ..., pipelines: _Optional[_Iterable[_Union[_dataset_pb2.Pipeline, _Mapping]]] = ..., featuresets: _Optional[_Iterable[_Union[_featureset_pb2.Featureset, _Mapping]]] = ..., sources: _Optional[_Iterable[_Union[_connector_pb2.Source, _Mapping]]] = ...) -> None: ...
+    allow_retention_narrowing: bool
+    def __init__(self, message: _Optional[str] = ..., datasets: _Optional[_Iterable[_Union[_dataset_pb2.Dataset, _Mapping]]] = ..., pipelines: _Optional[_Iterable[_Union[_dataset_pb2.Pipeline, _Mapping]]] = ..., featuresets: _Optional[_Iterable[_Union[_featureset_pb2.Featureset, _Mapping]]] = ..., sources: _Optional[_Iterable[_Union[_connector_pb2.Source, _Mapping]]] = ..., allow_retention_narrowing: bool = ...) -> None: ...
 
 class CommitResponse(_message.Message):
     __slots__ = ("commit_id", "datasets_count", "pipelines_count", "featuresets_count", "jobs_created", "topics_created")

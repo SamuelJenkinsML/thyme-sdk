@@ -578,3 +578,69 @@ def test_commit_does_not_warn_when_both_local():
     assert result.exit_code == 0, result.output
     assert "PostgresSource for table" not in result.output
     assert "THYME_POSTGRES_HOST" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# TH-306: --allow-retention-narrowing
+# ---------------------------------------------------------------------------
+
+
+def test_commit_does_not_allow_retention_narrowing_by_default():
+    """Without the flag, the commit asks the server not to shorten retention."""
+    clear_registry()
+
+    with patch("thyme.compiler.compile_commit_request") as mock_compile, \
+         patch("httpx.post") as mock_post:
+        mock_compile.return_value = MagicMock(SerializeToString=MagicMock(return_value=b""))
+        mock_post.return_value = MagicMock(
+            status_code=200, raise_for_status=MagicMock(return_value=None)
+        )
+        result = runner.invoke(app, ["commit", "-m", "tests.fixtures.sample_features"])
+
+    assert result.exit_code == 0, result.output
+    # Given/When/Then: the default is the one that cannot destroy data. Asserting
+    # on the value rather than its absence, because "the key was missing" and
+    # "the key was False" are the same on the wire but not in intent.
+    assert mock_compile.call_args.kwargs["allow_retention_narrowing"] is False
+
+
+def test_commit_allow_retention_narrowing_flag_is_forwarded():
+    """--allow-retention-narrowing reaches the commit request."""
+    clear_registry()
+
+    with patch("thyme.compiler.compile_commit_request") as mock_compile, \
+         patch("httpx.post") as mock_post:
+        mock_compile.return_value = MagicMock(SerializeToString=MagicMock(return_value=b""))
+        mock_post.return_value = MagicMock(
+            status_code=200, raise_for_status=MagicMock(return_value=None)
+        )
+        result = runner.invoke(
+            app,
+            ["commit", "-m", "tests.fixtures.sample_features", "--allow-retention-narrowing"],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert mock_compile.call_args.kwargs["allow_retention_narrowing"] is True
+
+
+def test_commit_json_fallback_also_carries_the_narrowing_opt_in():
+    """The JSON path is not a way to lose the flag."""
+    clear_registry()
+
+    # Given: protobuf compilation fails, so the CLI falls back to JSON.
+    with patch("thyme.compiler.compile_commit_request", side_effect=RuntimeError("nope")), \
+         patch("httpx.post") as mock_post:
+        mock_post.return_value = MagicMock(
+            status_code=200, raise_for_status=MagicMock(return_value=None)
+        )
+        result = runner.invoke(
+            app,
+            ["commit", "-m", "tests.fixtures.sample_features", "--allow-retention-narrowing"],
+        )
+
+    assert result.exit_code == 0, result.output
+    # Then: the opt-in survives the fallback. Dropping it here would turn a
+    # deliberate narrowing into a commit the server refuses, with a message
+    # telling the user to pass a flag they already passed.
+    posted = mock_post.call_args.kwargs["json"]
+    assert posted["allow_retention_narrowing"] is True
