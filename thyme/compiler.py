@@ -357,15 +357,24 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
             table=config.get("table", ""),
         ))
     elif connector_type == "postgres":
+        # No connection defaults here. `PostgresSource.to_dict()` deliberately
+        # omits anything the user did not set so the engine can inherit it from
+        # DATABASE_URL (TH-311); re-adding `5432` and `"prefer"` on the way to
+        # the proto would put the guess straight back. proto3 scalars have no
+        # presence, so "unset" travels as the zero value — `""` and `0` — which
+        # is exactly what the engine reads as absent.
+        #
+        # `schema` keeps its default: it names a namespace *inside* whichever
+        # database is reached, so DATABASE_URL has nothing to say about it.
         source.postgres.CopyFrom(connector_pb2.PostgresSource(
             host=config.get("host", ""),
-            port=config.get("port", 5432),
+            port=config.get("port", 0),
             database=config.get("database", ""),
             table=config.get("table", ""),
             user=config.get("user", ""),
             password=_make_secret_ref(config.get("password", "")),
             schema=config.get("schema", "public"),
-            sslmode=config.get("sslmode", "prefer"),
+            sslmode=config.get("sslmode", ""),
         ))
     elif connector_type == "s3json":
         source.s3json.CopyFrom(connector_pb2.S3JsonSource(

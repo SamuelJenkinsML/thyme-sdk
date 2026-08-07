@@ -88,9 +88,19 @@ class TestPostgresEnvDefaults:
         with pytest.raises(ValueError, match="requires 'table'"):
             PostgresSource(table="")
 
-    def test_password_default_is_empty_literal(self):
+    def test_unset_password_is_omitted_not_an_empty_literal(self):
+        # It used to serialise as {"kind": "literal", "value": ""}, which the
+        # engine could only read as "authenticate with the empty password".
+        # Omitted means "inherit the credentials from DATABASE_URL" (TH-311) —
+        # the whole point of the change, and not something an empty string can
+        # express.
         src = PostgresSource(table="orders")
-        assert src.to_dict()["config"]["password"] == {"kind": "literal", "value": ""}
+        assert "password" not in src.to_dict()["config"]
+
+    def test_password_from_env_is_still_sent(self, monkeypatch):
+        monkeypatch.setenv("THYME_POSTGRES_PASSWORD", "from-env")
+        src = PostgresSource(table="orders")
+        assert src.to_dict()["config"]["password"] == {"kind": "literal", "value": "from-env"}
 
 
 class TestKinesisEnvDefaults:
