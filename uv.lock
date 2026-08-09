@@ -899,6 +899,7 @@ dev = [
     { name = "duckdb" },
     { name = "grpcio-tools" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "pyarrow" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -925,9 +926,10 @@ provides-extras = ["pandas", "arrow", "testing", "offline", "all"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "duckdb", specifier = ">=0.10" },
+    { name = "duckdb", specifier = ">=1.0" },
     { name = "grpcio-tools", specifier = ">=1.78.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
+    { name = "pyarrow", specifier = ">=15.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "ruff", specifier = ">=0.4.0" },
 ]
