@@ -28,12 +28,22 @@ def env_default(connector_type: str, field: str, default: object = _MISSING) -> 
     return default
 
 
-def env_default_int(connector_type: str, field: str, default: int) -> int:
+def env_default_int_or_none(connector_type: str, field: str) -> int | None:
+    """Look up THYME_<TYPE>_<FIELD> as an int, for fields with no defensible default.
+
+    A connection port is the case this exists for: there is no value that is
+    right both locally and in a cluster, so an unset port must stay unset and be
+    resolved downstream rather than guessed here. See `PostgresSource`.
+    """
     raw = env_default(connector_type, field, default=None)
     if raw is None:
-        return default
+        return None
+    return _as_int(connector_type, field, raw)
+
+
+def _as_int(connector_type: str, field: str, raw: object) -> int:
     try:
-        return int(raw)
+        return int(raw)  # type: ignore[arg-type]
     except ValueError:
         raise ValueError(
             f"THYME_{connector_type.upper()}_{field.upper()}={raw!r} is not a valid integer."

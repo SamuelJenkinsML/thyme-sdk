@@ -235,6 +235,66 @@ def test_postgres_source_default_schema_is_public():
     assert d["config"]["schema"] == "public"
 
 
+def test_postgres_source_with_only_a_table_omits_connection_settings(monkeypatch):
+    # Given: no THYME_POSTGRES_* in the environment, and a source that states
+    # only what it is *about* — which table to read.
+    for var in ("HOST", "PORT", "DATABASE", "USER", "PASSWORD", "SSLMODE"):
+        monkeypatch.delenv(f"THYME_POSTGRES_{var}", raising=False)
+    src = PostgresSource(table="user_profiles")
+
+    # When: it is serialised for the commit
+    cfg = src.to_dict()["config"]
+
+    # Then: the connection settings are absent, not guessed. They used to be
+    # baked here from the *committing machine's* environment — host="localhost",
+    # port=5432 — so a commit made on a laptop told a cluster pod to look for
+    # Postgres on its own loopback, where there is none. The engine cannot tell
+    # a defaulted "localhost" from a deliberate one, so the only honest wire
+    # format is silence: absent means "inherit DATABASE_URL" (TH-311).
+    assert "host" not in cfg
+    assert "port" not in cfg
+    assert "database" not in cfg
+    assert "user" not in cfg
+    assert "password" not in cfg
+
+    # And: what the source genuinely knows is still sent.
+    assert cfg["table"] == "user_profiles"
+    assert cfg["schema"] == "public"
+
+
+def test_postgres_source_still_sends_every_field_it_was_given():
+    # Given: an external database — one that is not Thyme's own metadata store —
+    # which must still be fully addressable.
+    src = PostgresSource(
+        host="warehouse.example.com", port=6543, database="analytics",
+        table="orders", user="reader", password="pw", sslmode="require",
+    )
+
+    cfg = src.to_dict()["config"]
+
+    assert cfg["host"] == "warehouse.example.com"
+    assert cfg["port"] == 6543
+    assert cfg["database"] == "analytics"
+    assert cfg["user"] == "reader"
+    assert cfg["password"] == {"kind": "literal", "value": "pw"}
+    assert cfg["sslmode"] == "require"
+
+
+def test_postgres_source_env_defaults_still_win_over_absence(monkeypatch):
+    # THYME_POSTGRES_* is how a demo file stays portable without threading a
+    # Config through every call. Omitting unset fields must not break that.
+    monkeypatch.setenv("THYME_POSTGRES_HOST", "db.internal")
+    monkeypatch.setenv("THYME_POSTGRES_PORT", "6432")
+    src = PostgresSource(table="orders")
+
+    cfg = src.to_dict()["config"]
+
+    assert cfg["host"] == "db.internal"
+    assert cfg["port"] == 6432
+    # And fields the env did not supply are still absent rather than guessed.
+    assert "database" not in cfg
+
+
 def test_postgres_source_registers_with_source_decorator():
     # Given: a PostgresSource attached to a dataset
     pg_src = PostgresSource(host="h", port=5432, database="d", table="t", user="u", password="p")

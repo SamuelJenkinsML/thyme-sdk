@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Callable, ClassVar
 
 from thyme.connectors_base import SourceConnector
-from thyme.env_defaults import env_default, env_default_int
+from thyme.env_defaults import env_default, env_default_int_or_none
 from thyme.secret import Secret
 
 
@@ -65,8 +65,26 @@ class PostgresSource:
     """Configuration for a Postgres table source.
 
     Per-dataset (required): table.
-    Env-defaulted (THYME_POSTGRES_*): host, port, database, user, schema, sslmode.
+    Env-defaulted (THYME_POSTGRES_*): host, port, database, user, sslmode.
     Secret-capable: password.
+
+    Anything left unset is **omitted from the commit**, and the engine fills it
+    from its own ``DATABASE_URL``. That is what makes
+
+        PostgresSource(table="user_profiles")
+
+    work unchanged on a laptop and in a cluster.
+
+    It has to be omission rather than a default (TH-311). These fields used to
+    be resolved to concrete values here, at *commit* time, from the committing
+    machine's environment — so a commit made locally shipped
+    ``host="localhost", port=5432`` to a cluster pod, which has no Postgres on
+    its loopback. The engine logged ``failed to connect to Postgres at
+    localhost:5432`` every 30s per dataset and could not tell that guess from a
+    deliberate choice, because on the wire they are the same bytes.
+
+    Setting any field still pins it, which is how an *external* database — one
+    that is not Thyme's own metadata store — is addressed.
     """
 
     connector_type: ClassVar[str] = "postgres"
@@ -85,28 +103,35 @@ class PostgresSource:
         sslmode: str | None = None,
     ):
         self.table = _require("PostgresSource", "table", table)
-        self.host = host or env_default("postgres", "host", default="localhost")
-        self.port = port if port is not None else env_default_int("postgres", "port", default=5432)
-        self.database = database or env_default("postgres", "database", default="")
-        self.user = user or env_default("postgres", "user", default="")
-        self.password: str | Secret = password if password is not None else env_default("postgres", "password", default="")
+        self.host = host or env_default("postgres", "host", default=None)
+        self.port = port if port is not None else env_default_int_or_none("postgres", "port")
+        self.database = database or env_default("postgres", "database", default=None)
+        self.user = user or env_default("postgres", "user", default=None)
+        self.password: str | Secret | None = (
+            password if password is not None else env_default("postgres", "password", default=None)
+        )
+        # `schema` keeps a real default: it names a namespace *inside* the
+        # database being read, so DATABASE_URL has nothing to say about it.
         self.schema = schema or env_default("postgres", "schema", default="public")
-        self.sslmode = sslmode or env_default("postgres", "sslmode", default="prefer")
+        self.sslmode = sslmode or env_default("postgres", "sslmode", default=None)
 
     def to_dict(self) -> dict:
-        return {
-            "connector_type": self.connector_type,
-            "config": {
-                "host": self.host,
-                "port": self.port,
-                "database": self.database,
-                "table": self.table,
-                "user": self.user,
-                "password": _credential_dict(self.password),
-                "schema": self.schema,
-                "sslmode": self.sslmode,
-            },
-        }
+        config: dict[str, Any] = {"table": self.table, "schema": self.schema}
+        # Only fields that were actually supplied. A key present with an empty
+        # value would read as "connect as the empty user", which is not what
+        # "unset" means.
+        for key, value in (
+            ("host", self.host),
+            ("port", self.port),
+            ("database", self.database),
+            ("user", self.user),
+            ("sslmode", self.sslmode),
+        ):
+            if value is not None and value != "":
+                config[key] = value
+        if self.password is not None and self.password != "":
+            config["password"] = _credential_dict(self.password)
+        return {"connector_type": self.connector_type, "config": config}
 
 
 class S3JsonSource:
