@@ -28,15 +28,8 @@ def env_default(connector_type: str, field: str, default: object = _MISSING) -> 
     return default
 
 
-def env_default_int(connector_type: str, field: str, default: int) -> int:
-    raw = env_default(connector_type, field, default=None)
-    if raw is None:
-        return default
-    return _as_int(connector_type, field, raw)
-
-
 def env_default_int_or_none(connector_type: str, field: str) -> int | None:
-    """As `env_default_int`, for fields with no defensible default.
+    """Look up THYME_<TYPE>_<FIELD> as an int, for fields with no defensible default.
 
     A connection port is the case this exists for: there is no value that is
     right both locally and in a cluster, so an unset port must stay unset and be

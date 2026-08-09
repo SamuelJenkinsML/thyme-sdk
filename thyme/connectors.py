@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Callable, ClassVar
 
 from thyme.connectors_base import SourceConnector
-from thyme.env_defaults import env_default, env_default_int, env_default_int_or_none
+from thyme.env_defaults import env_default, env_default_int_or_none
 from thyme.secret import Secret
 
 
