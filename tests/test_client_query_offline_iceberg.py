@@ -138,27 +138,58 @@ class TestRouting:
 
         assert _iceberg_configured() is True
 
-    def test_derived_features_fail_loudly_before_any_connection(self, monkeypatch):
-        # given a featureset whose features are not all stored, and a catalog
-        # that would fail if it were ever reached
+    def test_a_pull_with_derived_features_computes_them(self, monkeypatch, con):
+        # given a featureset with a stored feature and one derived from it
         class UserFeatures:
-            _featureset_meta = WITH_DERIVED
+            _featureset_meta = {
+                "name": "UserOrderStats",
+                "features": [
+                    {"name": "order_count_24h", "dtype": "float"},
+                    {
+                        "name": "is_busy",
+                        "dtype": "bool",
+                        "deps": ["order_count_24h"],
+                    },
+                ],
+                "extractors": [
+                    {
+                        "name": "compute_busy",
+                        "kind": "PY_FUNC",
+                        "inputs": ["order_count_24h"],
+                        "outputs": ["is_busy"],
+                        "source_code": (
+                            "def compute_busy(cls, ts, count):\n"
+                            "    if count is None:\n"
+                            "        return False\n"
+                            "    return count > 5\n"
+                        ),
+                    }
+                ],
+            }
 
-        client = ThymeClient()
+        # and a catalog whose connection is the local fixture
+        monkeypatch.setattr("thyme.client.connect", lambda cfg: con)
+
         spine = pl.DataFrame(
-            {"entity_id": ["c123"], "timestamp": ["2026-08-04T11:00:00Z"]}
+            {
+                "entity_id": ["c123", "c456"],
+                "timestamp": ["2026-08-04T11:00:00Z", "2026-08-04T11:00:00Z"],
+            }
         )
 
-        # then the gap is reported rather than silently returning a frame
-        # missing the derived column
-        with pytest.raises(NotImplementedError, match="is_suspicious"):
-            client.query_offline(
-                UserFeatures,
-                spine,
-                entity_column="entity_id",
-                timestamp_column="timestamp",
-                catalog=CatalogConfig(type="rest", uri="http://unreachable:1"),
-            )
+        result = ThymeClient().query_offline(
+            UserFeatures,
+            spine,
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+            catalog=CatalogConfig(database="main"),
+        )
+
+        # then the stored feature is read and the derived one computed
+        frame = result.to_polars().sort("entity_id")
+        assert frame["order_count_24h"].to_list() == [7.0, 5.0]
+        assert frame["is_busy"].to_list() == [True, False]
+        assert result.metadata["extractors"] == "row_wise"
 
 
 class TestDerivedFeatures:
