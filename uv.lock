@@ -876,10 +876,15 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "confluent-kafka" },
+    { name = "duckdb" },
     { name = "pandas" },
     { name = "pyarrow" },
 ]
 arrow = [
+    { name = "pyarrow" },
+]
+offline = [
+    { name = "duckdb" },
     { name = "pyarrow" },
 ]
 pandas = [
@@ -903,6 +908,8 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.40.0" },
     { name = "confluent-kafka", marker = "extra == 'all'", specifier = ">=2.5" },
     { name = "confluent-kafka", marker = "extra == 'testing'", specifier = ">=2.5" },
+    { name = "duckdb", marker = "extra == 'all'", specifier = ">=1.0" },
+    { name = "duckdb", marker = "extra == 'offline'", specifier = ">=1.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "pandas", marker = "extra == 'all'", specifier = ">=2.0" },
     { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0" },
@@ -910,10 +917,11 @@ requires-dist = [
     { name = "protobuf", specifier = ">=5.27.0" },
     { name = "pyarrow", marker = "extra == 'all'", specifier = ">=15.0" },
     { name = "pyarrow", marker = "extra == 'arrow'", specifier = ">=15.0" },
+    { name = "pyarrow", marker = "extra == 'offline'", specifier = ">=15.0" },
     { name = "rich", specifier = ">=13.0" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
-provides-extras = ["pandas", "arrow", "testing", "all"]
+provides-extras = ["pandas", "arrow", "testing", "offline", "all"]
 
 [package.metadata.requires-dev]
 dev = [
