@@ -17,7 +17,18 @@ dependencies = [
 pandas = ["pandas>=2.0"]
 arrow = ["pyarrow>=15.0"]
 testing = ["confluent-kafka>=2.5"]
-all = ["pandas>=2.0", "pyarrow>=15.0", "confluent-kafka>=2.5"]
+# Reading the Iceberg offline store directly, for training data and EDA.
+# DuckDB rather than PyIceberg is a correctness requirement, not a preference:
+# PyIceberg is `N` for "Read with equality deletes" in the Iceberg support
+# matrix and Polars delegates its Iceberg scan to it, so after a backfill either
+# returns superseded rows silently. See thyme/offline_iceberg.py.
+offline = ["duckdb>=1.0", "pyarrow>=15.0"]
+all = [
+    "pandas>=2.0",
+    "pyarrow>=15.0",
+    "confluent-kafka>=2.5",
+    "duckdb>=1.0",
+]
 
 [project.scripts]
 thyme = "thyme.cli:main"
