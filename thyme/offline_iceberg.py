@@ -23,6 +23,8 @@ project only the needed columns, and never call Python per row.
 
 from __future__ import annotations
 
+from typing import Any
+
 # Columns the sink writes that a training pull must never read.
 #
 # `state_value` is the raw StateValue proto (~200-500 B/row) and dwarfs the
@@ -107,6 +109,46 @@ def feature_columns_for(featureset_meta: dict) -> list[str]:
             continue
         columns.append(name)
     return columns
+
+
+def derived_features(featureset_meta: dict) -> list[str]:
+    """Features computed by an extractor rather than read from a table."""
+    return [
+        f["name"]
+        for f in featureset_meta.get("features", [])
+        if f.get("deps") and not f.get("request")
+    ]
+
+
+def resolve_spine(
+    con: Any,
+    *,
+    table: str,
+    feature_columns: list[str],
+    spine: Any,
+    entity_column: str,
+    timestamp_column: str,
+    max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
+) -> Any:
+    """Resolve a whole spine against one offline table, returning a relation.
+
+    The spine is registered from Arrow rather than serialised into SQL, so a
+    20M-row spine costs a view over memory the caller already holds.
+
+    Returns a DuckDB relation, unevaluated: nothing is read until the caller
+    materialises or streams it.
+    """
+    spine_relation = "thyme_spine"
+    con.register(spine_relation, spine)
+    sql = build_asof_sql(
+        table=table,
+        feature_columns=feature_columns,
+        entity_column=entity_column,
+        timestamp_column=timestamp_column,
+        spine_relation=spine_relation,
+        max_lookback=max_lookback,
+    )
+    return con.sql(sql)
 
 
 def build_asof_sql(

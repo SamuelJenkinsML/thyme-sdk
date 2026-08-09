@@ -7,14 +7,39 @@ extract training data offline, log data, and inspect state.
 from __future__ import annotations
 
 import io
+import os
 from typing import Any, Union
 
 import httpx
 import polars as pl
 
 from thyme.config import Config
+from thyme.offline_catalog import CatalogConfig, connect
+from thyme.offline_iceberg import (
+    DEFAULT_MAX_LOOKBACK,
+    derived_features,
+    feature_columns_for,
+    resolve_spine,
+)
 from thyme.result import ThymeResult
 from thyme.types import schema_from_featureset
+
+#: Environment that indicates the offline store is reachable. Presence of any of
+#: these, not their value, is what routes `query_offline` at Iceberg — the
+#: defaults in `CatalogConfig` are always populated, so "is it set" has to be
+#: asked of the environment rather than of the resolved config.
+_ICEBERG_ENV = ("THYME_ICEBERG_CATALOG", "THYME_ICEBERG_URI", "THYME_ICEBERG_DATABASE")
+
+
+def _iceberg_configured() -> bool:
+    """Whether the environment points at an Iceberg catalog.
+
+    Deliberately explicit rather than probing for a reachable catalog: a network
+    call to decide which code path to take would make the choice depend on
+    transient conditions, and a training pull silently falling back to the
+    per-row API path is exactly the failure this work exists to remove.
+    """
+    return any(os.environ.get(name) for name in _ICEBERG_ENV)
 
 _ARROW_IPC_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
 _ARROW_ACCEPT = f"{_ARROW_IPC_CONTENT_TYPE}, application/json;q=0.9"
@@ -260,8 +285,18 @@ class ThymeClient:
         entity_column: str,
         timestamp_column: str,
         batch_size: int = 5000,
+        catalog: CatalogConfig | None = None,
+        max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
     ) -> ThymeResult:
         """Point-in-time correct batch feature extraction for training data.
+
+        Reads the Iceberg offline store **directly** when a catalog is
+        configured — either passed here or via `THYME_ICEBERG_*` in the
+        environment. The whole spine is then resolved by one as-of join rather
+        than by `POST /features/offline`, which loops per row inside the serving
+        process and is a point-in-time API rather than a training path.
+
+        With no catalog configured the API path is used, unchanged.
 
         Args:
             featureset: A @featureset-decorated class.
@@ -269,14 +304,30 @@ class ThymeClient:
                       Accepts pl.DataFrame, pd.DataFrame, or list[dict].
             entity_column: Column name for entity IDs.
             timestamp_column: Column name for timestamps.
-            batch_size: Number of rows per request (default 5000).
+            batch_size: Number of rows per request. API path only.
+            catalog: Where the Iceberg tables live. Defaults to the environment.
+            max_lookback: How far back history is read, as a DuckDB interval.
+                ``None`` reads all history. Iceberg path only.
 
         Returns:
-            ThymeResult with original entity/timestamp columns plus feature columns.
+            ThymeResult with original entity/timestamp columns plus feature
+            columns. The Iceberg path returns a **lazy** result, so a large pull
+            can be streamed with ``.sink_parquet()`` or ``.iter_batches()``
+            instead of being materialised.
 
         Raises:
             httpx.HTTPStatusError: On non-2xx response from query-server.
         """
+        if catalog is not None or _iceberg_configured():
+            return self._query_offline_iceberg(
+                featureset,
+                entities,
+                entity_column=entity_column,
+                timestamp_column=timestamp_column,
+                catalog=catalog or CatalogConfig.from_env(),
+                max_lookback=max_lookback,
+            )
+
         meta = _get_featureset_meta(featureset)
         fs_name = meta["name"]
         schema = schema_from_featureset(meta)
@@ -338,6 +389,67 @@ class ThymeClient:
             df,
             metadata={"entity_type": fs_name, "mode": "offline"},
             query_run_id=last_run_id,
+        )
+
+    def _query_offline_iceberg(
+        self,
+        featureset: type,
+        entities: Any,
+        *,
+        entity_column: str,
+        timestamp_column: str,
+        catalog: CatalogConfig,
+        max_lookback: str | None,
+    ) -> ThymeResult:
+        """Resolve a spine against the Iceberg store in one as-of join."""
+        meta = _get_featureset_meta(featureset)
+        fs_name = meta["name"]
+
+        derived = derived_features(meta)
+        if derived:
+            # The SQL path produces table columns. Returning a frame silently
+            # missing the derived ones would be a correctness bug, so the gap is
+            # made visible rather than papered over. Column-batched extractor
+            # execution is the follow-on that closes it.
+            raise NotImplementedError(
+                f"featureset {fs_name!r} has derived features {derived}, which "
+                f"are computed by an extractor rather than stored as table "
+                f"columns. The Iceberg path does not run extractors yet. Either "
+                f"unset THYME_ICEBERG_* to use the query-server path, or query a "
+                f"featureset whose features are all stored."
+            )
+
+        columns = feature_columns_for(meta)
+        if not columns:
+            raise ValueError(
+                f"featureset {fs_name!r} has no stored features to read."
+            )
+
+        spine = _normalize_to_polars(entities).select(
+            [entity_column, timestamp_column]
+        )
+
+        con = connect(catalog)
+        relation = resolve_spine(
+            con,
+            table=catalog.table(fs_name),
+            feature_columns=columns,
+            spine=spine.to_arrow(),
+            entity_column=entity_column,
+            timestamp_column=timestamp_column,
+            max_lookback=max_lookback,
+        )
+        # `connection` is load-bearing: a DuckDB relation is only valid while
+        # its connection lives, and this one is local to the call.
+        return ThymeResult(
+            relation,
+            metadata={
+                "entity_type": fs_name,
+                "mode": "offline",
+                "source": "iceberg",
+                "catalog": catalog.type,
+            },
+            connection=con,
         )
 
     def lookup(
