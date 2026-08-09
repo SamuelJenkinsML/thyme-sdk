@@ -18,7 +18,11 @@ on a parsed instant.
 import duckdb
 import pytest
 
-from thyme.offline_iceberg import build_asof_sql, feature_columns_for
+from thyme.offline_iceberg import (
+    DEFAULT_MAX_LOOKBACK,
+    build_asof_sql,
+    feature_columns_for,
+)
 
 
 # Columns the sink writes that a training pull must never read. Names mirror
@@ -116,8 +120,8 @@ class TestLookbackPruning:
         # then the scan is bounded below
         assert "90 days" in sql
 
-    def test_omitting_max_lookback_leaves_history_unbounded_below(self):
-        # given no lookback
+    def test_lookback_is_bounded_by_default(self):
+        # given a caller who says nothing about lookback
         sql = build_asof_sql(
             table="t",
             feature_columns=["f"],
@@ -125,7 +129,23 @@ class TestLookbackPruning:
             timestamp_column="timestamp",
         )
 
-        # then no lower bound is imposed -- correct, but reads all history
+        # then the scan is bounded anyway -- an unbounded default would make
+        # scan volume a function of the table's whole history
+        assert DEFAULT_MAX_LOOKBACK in sql
+        assert "min_event_time -" in sql
+
+    def test_max_lookback_none_opts_out_of_bounding(self):
+        # given an explicit opt-out
+        sql = build_asof_sql(
+            table="t",
+            feature_columns=["f"],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+            max_lookback=None,
+        )
+
+        # then all history is read -- correct for a dormant-entity spine, and
+        # the caller has asked for it deliberately
         assert "min_event_time -" not in sql
 
     def test_pruning_targets_the_partition_column_not_the_ts_string(self):
