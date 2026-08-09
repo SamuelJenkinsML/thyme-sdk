@@ -15,9 +15,9 @@ import polars as pl
 
 from thyme.config import Config
 from thyme.offline_catalog import CatalogConfig, connect
+from thyme.offline_extractors import apply_extractors, runnable_extractors
 from thyme.offline_iceberg import (
     DEFAULT_MAX_LOOKBACK,
-    derived_features,
     feature_columns_for,
     resolve_spine,
 )
@@ -287,6 +287,7 @@ class ThymeClient:
         batch_size: int = 5000,
         catalog: CatalogConfig | None = None,
         max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
+        vectorized: bool = False,
     ) -> ThymeResult:
         """Point-in-time correct batch feature extraction for training data.
 
@@ -326,6 +327,7 @@ class ThymeClient:
                 timestamp_column=timestamp_column,
                 catalog=catalog or CatalogConfig.from_env(),
                 max_lookback=max_lookback,
+                vectorized=vectorized,
             )
 
         meta = _get_featureset_meta(featureset)
@@ -400,24 +402,11 @@ class ThymeClient:
         timestamp_column: str,
         catalog: CatalogConfig,
         max_lookback: str | None,
+        vectorized: bool = False,
     ) -> ThymeResult:
         """Resolve a spine against the Iceberg store in one as-of join."""
         meta = _get_featureset_meta(featureset)
         fs_name = meta["name"]
-
-        derived = derived_features(meta)
-        if derived:
-            # The SQL path produces table columns. Returning a frame silently
-            # missing the derived ones would be a correctness bug, so the gap is
-            # made visible rather than papered over. Column-batched extractor
-            # execution is the follow-on that closes it.
-            raise NotImplementedError(
-                f"featureset {fs_name!r} has derived features {derived}, which "
-                f"are computed by an extractor rather than stored as table "
-                f"columns. The Iceberg path does not run extractors yet. Either "
-                f"unset THYME_ICEBERG_* to use the query-server path, or query a "
-                f"featureset whose features are all stored."
-            )
 
         columns = feature_columns_for(meta)
         if not columns:
@@ -439,18 +428,26 @@ class ThymeClient:
             timestamp_column=timestamp_column,
             max_lookback=max_lookback,
         )
-        # `connection` is load-bearing: a DuckDB relation is only valid while
-        # its connection lives, and this one is local to the call.
-        return ThymeResult(
-            relation,
-            metadata={
-                "entity_type": fs_name,
-                "mode": "offline",
-                "source": "iceberg",
-                "catalog": catalog.type,
-            },
-            connection=con,
-        )
+        metadata = {
+            "entity_type": fs_name,
+            "mode": "offline",
+            "source": "iceberg",
+            "catalog": catalog.type,
+        }
+
+        if not runnable_extractors(meta):
+            # `connection` is load-bearing: a DuckDB relation is only valid
+            # while its connection lives, and this one is local to the call.
+            return ThymeResult(relation, metadata=metadata, connection=con)
+
+        # Derived features need Python, and Python needs rows — so this is the
+        # one path that materialises. Row-wise by default because that is what
+        # query-server does and therefore the only way to guarantee the training
+        # set matches the serving path; `vectorized=True` trades that guarantee
+        # for one call per frame. See thyme/offline_extractors.py.
+        frame = apply_extractors(relation.pl(), meta, vectorized=vectorized)
+        metadata["extractors"] = "vectorized" if vectorized else "row_wise"
+        return ThymeResult(frame, metadata=metadata)
 
     def lookup(
         self,
