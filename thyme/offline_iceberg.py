@@ -64,6 +64,19 @@ PARTITION_COLUMN = "event_time"
 # extra partition at the boundary, and only when the spine ends on a day edge.
 _PRUNE_MARGIN = "1 second"
 
+#: How far back history is read by default.
+#:
+#: An as-of read must find the newest row at or before each spine timestamp, so
+#: an entity that last updated two years ago would otherwise force two years of
+#: scan. Bounding it makes scan volume a function of the spine's span rather
+#: than of the table's whole history.
+#:
+#: It is a semantic choice, not only a tuning one: with a bound, the answer is
+#: "the value as of `ts`, **provided it was updated within the window**", and an
+#: entity dormant for longer resolves to null rather than to its last known
+#: value. Pass ``max_lookback=None`` to opt out and read all history.
+DEFAULT_MAX_LOOKBACK = "90 days"
+
 
 def _quote_ident(name: str) -> str:
     """Quote a SQL identifier, doubling any embedded quote."""
@@ -103,7 +116,7 @@ def build_asof_sql(
     entity_column: str,
     timestamp_column: str,
     spine_relation: str = "spine",
-    max_lookback: str | None = None,
+    max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
 ) -> str:
     """Build the as-of join that resolves an entire spine in one scan.
 
@@ -115,8 +128,9 @@ def build_asof_sql(
         timestamp_column: Timestamp column **in the spine**.
         spine_relation: Relation holding the spine. Registered from Arrow by the
             caller, so the spine is never serialised through SQL.
-        max_lookback: A DuckDB interval such as ``"90 days"`` bounding how far
-            back history is read. See the note on unbounded scans below.
+        max_lookback: A DuckDB interval bounding how far back history is read.
+            Defaults to :data:`DEFAULT_MAX_LOOKBACK`; pass ``None`` for all of
+            history. See the note on unbounded scans below.
 
     ## Ordering is on the raw timestamp string
 
