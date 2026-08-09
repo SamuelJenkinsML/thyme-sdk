@@ -182,7 +182,9 @@ class TestRouting:
             spine,
             entity_column="entity_id",
             timestamp_column="timestamp",
-            catalog=CatalogConfig(database="main"),
+            # A bare DuckDB connection is `memory.main`; the config has to
+            # name both parts or the qualified table will not resolve.
+            catalog=CatalogConfig(alias="memory", database="main"),
         )
 
         # then the stored feature is read and the derived one computed
