@@ -61,11 +61,23 @@ class CatalogConfig:
 
     #: One of :data:`CATALOG_TYPES`.
     type: str = "rest"
+    #: The name the catalog is ATTACHed as. Part of the config rather than a
+    #: loose argument because :meth:`table` and :func:`attach_sql` have to agree
+    #: — a qualified name missing the alias resolves against DuckDB's own
+    #: schemas and fails with "schema does not exist".
+    alias: str = "ice"
     #: REST endpoint, or the AWS account id when ``type`` is ``glue``.
     uri: str = "http://localhost:8181"
     #: Iceberg namespace holding one table per entity type.
     database: str = "thyme"
     region: str = "us-east-1"
+    #: The REST catalog's warehouse. This is what DuckDB attaches to for a REST
+    #: catalog; namespaces live inside it. Falls back to `database` when unset.
+    warehouse: str = ""
+    #: REST auth. DuckDB defaults to `oauth2`, which fails against an
+    #: unauthenticated catalog, so `none` is the default here and the local and
+    #: CI catalogs work without configuration.
+    authorization_type: str = "none"
     #: Object-store overrides. Empty means "use the ambient provider chain",
     #: which is what a deployment on IRSA needs — see :func:`attach_sql`.
     s3_endpoint: str = ""
@@ -78,6 +90,8 @@ class CatalogConfig:
             type=_env("THYME_ICEBERG_CATALOG", "rest"),
             uri=_env("THYME_ICEBERG_URI", "http://localhost:8181"),
             database=_env("THYME_ICEBERG_DATABASE", "thyme"),
+            warehouse=_env("ICEBERG_WAREHOUSE"),
+            authorization_type=_env("THYME_ICEBERG_AUTH", "none"),
             region=_env("AWS_REGION", _env("AWS_DEFAULT_REGION", "us-east-1")),
             s3_endpoint=_env("OFFLINE_ENDPOINT"),
             s3_access_key=_env("OFFLINE_ACCESS_KEY"),
@@ -87,9 +101,11 @@ class CatalogConfig:
     def table(self, entity_type: str) -> str:
         """The fully-qualified table for an entity type.
 
-        `UserOrderStats` -> `thyme.user_order_stats`.
+        `UserOrderStats` -> `ice.thyme.user_order_stats` — attach alias,
+        namespace, table. All three parts are required: DuckDB resolves an
+        unqualified `thyme.x` against its own schemas, not the attached catalog.
         """
-        return f"{self.database}.{table_name(entity_type)}"
+        return f"{self.alias}.{self.database}.{table_name(entity_type)}"
 
 
 def _escape(value: str) -> str:
@@ -97,7 +113,7 @@ def _escape(value: str) -> str:
     return value.replace("'", "''")
 
 
-def attach_sql(config: CatalogConfig, alias: str = "ice") -> list[str]:
+def attach_sql(config: CatalogConfig, alias: str | None = None) -> list[str]:
     """The statements that prepare a DuckDB connection to read the store.
 
     Returned rather than executed so the wiring is unit-testable without a
@@ -111,6 +127,7 @@ def attach_sql(config: CatalogConfig, alias: str = "ice") -> list[str]:
     an anonymous identity. The Go sink documents the same trap, as does
     `thyme_common::object_store::build_s3_builder` on the Rust side.
     """
+    alias = alias or config.alias
     if config.type not in CATALOG_TYPES:
         raise ValueError(
             f"unknown Iceberg catalog type {config.type!r}; "
@@ -158,15 +175,27 @@ def attach_sql(config: CatalogConfig, alias: str = "ice") -> list[str]:
             f"(TYPE iceberg, ENDPOINT_TYPE 'glue')"
         )
     else:
+        # Two things here are easy to get wrong, and both were:
+        #
+        # The ATTACH target is the **warehouse**, not the namespace. DuckDB asks
+        # the REST catalog for a warehouse and finds namespaces inside it, so
+        # passing the database attaches nothing that resolves.
+        #
+        # And `AUTHORIZATION_TYPE` defaults to `oauth2`, which fails outright
+        # against an unauthenticated catalog -- the local one the e2e runs. It is
+        # configurable rather than pinned to `none` so a deployment behind OAuth2
+        # is still reachable.
+        warehouse = config.warehouse or config.database
         stmts.append(
-            f"ATTACH '{_escape(config.database)}' AS {alias} "
-            f"(TYPE iceberg, ENDPOINT '{_escape(config.uri)}')"
+            f"ATTACH '{_escape(warehouse)}' AS {alias} "
+            f"(TYPE iceberg, ENDPOINT '{_escape(config.uri)}'"
+            f", AUTHORIZATION_TYPE '{_escape(config.authorization_type)}')"
         )
 
     return stmts
 
 
-def connect(config: CatalogConfig | None = None, alias: str = "ice"):
+def connect(config: CatalogConfig | None = None, alias: str | None = None):
     """A DuckDB connection with the offline store attached.
 
     DuckDB rather than PyIceberg, and that is a correctness requirement:

@@ -79,9 +79,9 @@ class TestTableNaming:
     def test_matches_the_sink(self, entity_type, expected):
         assert table_name(entity_type) == expected
 
-    def test_table_is_qualified_by_the_configured_database(self):
+    def test_table_is_qualified_by_alias_and_database(self):
         cfg = CatalogConfig(database="thyme_prod")
-        assert cfg.table("UserOrderStats") == "thyme_prod.user_order_stats"
+        assert cfg.table("UserOrderStats") == "ice.thyme_prod.user_order_stats"
 
 
 class TestAttachSql:
@@ -143,3 +143,54 @@ class TestAttachSql:
         # sink and thyme_common::object_store::build_s3_builder both document.
         assert "credential_chain" in stmts
         assert "KEY_ID ''" not in stmts
+
+
+class TestAttachDefectsFoundAgainstRealInfrastructure:
+    """Two bugs the string-content tests above could not have caught.
+
+    Both were found by running `attach_sql` against the REST catalog the e2e
+    stands up, and both failed loudly at connect/query time rather than
+    returning wrong data — but only once something actually executed the SQL.
+    """
+
+    def test_rest_attach_sets_an_authorization_type(self):
+        # DuckDB defaults AUTHORIZATION_TYPE to oauth2, which fails outright
+        # against an unauthenticated catalog:
+        #   "AUTHORIZATION_TYPE is 'oauth2', yet no 'secret' was provided"
+        stmts = "\n".join(attach_sql(CatalogConfig(type="rest")))
+
+        assert "AUTHORIZATION_TYPE 'none'" in stmts
+
+    def test_authorization_type_is_configurable_for_a_secured_catalog(self):
+        stmts = "\n".join(
+            attach_sql(CatalogConfig(type="rest", authorization_type="oauth2"))
+        )
+
+        assert "AUTHORIZATION_TYPE 'oauth2'" in stmts
+
+    def test_rest_attaches_the_warehouse_not_the_namespace(self):
+        # DuckDB asks a REST catalog for a *warehouse* and finds namespaces
+        # inside it. Attaching the namespace resolves to nothing.
+        stmts = "\n".join(
+            attach_sql(
+                CatalogConfig(type="rest", warehouse="warehouse", database="thyme")
+            )
+        )
+
+        assert "ATTACH 'warehouse'" in stmts
+
+    def test_a_qualified_table_carries_the_attach_alias(self):
+        # `thyme.user_order_stats` resolves against DuckDB's own schemas and
+        # fails with 'schema "thyme" does not exist'. The alias is required.
+        cfg = CatalogConfig(alias="ice", database="thyme")
+
+        assert cfg.table("UserOrderStats") == "ice.thyme.user_order_stats"
+
+    def test_the_alias_used_to_attach_is_the_one_used_to_qualify(self):
+        # The two have to agree, which is why the alias lives on the config
+        # rather than being passed loose to attach_sql.
+        cfg = CatalogConfig(alias="offline")
+        stmts = "\n".join(attach_sql(cfg))
+
+        assert "AS offline " in stmts
+        assert cfg.table("Stats").startswith("offline.")
