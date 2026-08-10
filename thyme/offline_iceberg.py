@@ -132,14 +132,35 @@ def resolve_spine(
 ) -> Any:
     """Resolve a whole spine against one offline table, returning a relation.
 
-    The spine is registered from Arrow rather than serialised into SQL, so a
-    20M-row spine costs a view over memory the caller already holds.
+    The spine arrives as Arrow and is **copied into a DuckDB table** before the
+    join. That copy is not incidental — see below.
 
     Returns a DuckDB relation, unevaluated: nothing is read until the caller
     materialises or streams it.
+
+    ## Why the spine is materialised
+
+    Joining straight off the registered Arrow view looks strictly better: no
+    copy, and a 20M-row spine costs a view over memory the caller already holds.
+    It is 560x slower.
+
+    DuckDB will not use its native ASOF operator when a side is an Arrow scan;
+    the plan degrades to `NESTED_LOOP_JOIN` feeding a `HASH_GROUP_BY` with
+    `arg_max_null`. Measured on a 500k-row history with a 200k-row spine:
+
+        arrow spine + parquet history     21.9s      9,122 rows/sec
+        table spine + parquet history      0.04s  5,137,513 rows/sec
+
+    The copy costs one pass over two narrow columns — for 20M rows, a few
+    hundred MB and a second or so. It buys back three orders of magnitude, and
+    it is invisible in any test small enough to run quickly, which is why
+    `tests/bench_offline_pull.py` exists.
     """
     spine_relation = "thyme_spine"
-    con.register(spine_relation, spine)
+    arrow_view = "thyme_spine_arrow"
+    con.register(arrow_view, spine)
+    con.execute(f'CREATE OR REPLACE TEMP TABLE "{spine_relation}" AS SELECT * FROM "{arrow_view}"')
+    con.unregister(arrow_view)
     sql = build_asof_sql(
         table=table,
         feature_columns=feature_columns,
@@ -220,11 +241,12 @@ def build_asof_sql(
     # Projected explicitly, never `*` -- see BLOB_COLUMNS.
     projected = ", ".join(f"h.{_quote_ident(c)}" for c in feature_columns)
 
+    part = _quote_ident(PARTITION_COLUMN)
     lower_bound = ""
     if max_lookback is not None:
         lower_bound = (
-            f"\n      AND h.{_quote_ident(PARTITION_COLUMN)} "
-            f">= bounds.min_event_time - INTERVAL '{max_lookback}'"
+            f"\n      AND h.{part} >= "
+            f"(SELECT min_event_time FROM bounds) - INTERVAL '{max_lookback}'"
         )
 
     return f"""\
@@ -240,9 +262,15 @@ history AS (
     -- predicate on the `ts` string cannot prune partitions, and pruning is what
     -- makes this scan cheap. The margin on the upper bound is load-bearing --
     -- see _PRUNE_MARGIN.
+    --
+    -- The bounds arrive as scalar subqueries, not as a comma join against
+    -- `bounds`. That looks equivalent -- bounds is one row -- but an inequality
+    -- between two relations plans as a NESTED_LOOP_JOIN, which cost 87s of CPU
+    -- on a 500k-row history. A scalar subquery is evaluated once and folded in
+    -- as a constant, which is what the pruning wanted in the first place.
     SELECT h.{h_entity}, h.{h_ts}, {projected}
-    FROM {tbl} h, bounds
-    WHERE h.{_quote_ident(PARTITION_COLUMN)} <= bounds.max_event_time{lower_bound}
+    FROM {tbl} h
+    WHERE h.{part} <= (SELECT max_event_time FROM bounds){lower_bound}
 )
 SELECT s.{s_entity}, s.{s_ts}, {", ".join(f"h.{_quote_ident(c)}" for c in feature_columns)}
 FROM {spine} s

@@ -8,7 +8,12 @@ its default is `rest` on both sides.
 
 import pytest
 
-from thyme.offline_catalog import CatalogConfig, attach_sql, table_name
+from thyme.offline_catalog import (
+    CatalogConfig,
+    attach_sql,
+    resource_sql,
+    table_name,
+)
 
 
 class TestCatalogConfig:
@@ -194,3 +199,59 @@ class TestAttachDefectsFoundAgainstRealInfrastructure:
 
         assert "AS offline " in stmts
         assert cfg.table("Stats").startswith("offline.")
+
+
+class TestResourceLimits:
+    """Spilling, and why the temp directory is not an optional nicety.
+
+    An in-memory DuckDB with no `temp_directory` cannot spill: a join larger
+    than memory does not get slower, it takes the process — and with it whatever
+    else the machine was doing. A training pull is exactly that shape.
+    """
+
+    def test_a_temp_directory_is_set_by_default(self):
+        # given a config resolved with nothing in the environment
+        cfg = CatalogConfig.from_env()
+
+        # then spilling is possible at all
+        stmts = "\n".join(resource_sql(cfg))
+        assert "SET temp_directory" in stmts
+
+    def test_limits_are_applied_before_the_catalog_is_attached(self):
+        # given every knob set
+        cfg = CatalogConfig(
+            temp_directory="/mnt/scratch", memory_limit="8GB", threads="4"
+        )
+
+        stmts = resource_sql(cfg)
+
+        assert "SET temp_directory = '/mnt/scratch'" in stmts
+        assert "SET memory_limit = '8GB'" in stmts
+        assert "SET threads = 4" in stmts
+
+    def test_unset_limits_leave_duckdbs_own_defaults(self):
+        # given only a temp directory
+        cfg = CatalogConfig(temp_directory="/mnt/scratch")
+
+        stmts = "\n".join(resource_sql(cfg))
+
+        # then nothing is invented for the rest — DuckDB sizes memory and
+        # threads from the machine, and guessing worse than it does is easy
+        assert "memory_limit" not in stmts
+        assert "threads" not in stmts
+
+    def test_the_temp_directory_is_configurable_for_a_tmpfs_machine(self, monkeypatch):
+        # given a machine whose /tmp is RAM, which is common on Linux and makes
+        # "spilling" a slower route to the same OOM
+        monkeypatch.setenv("THYME_OFFLINE_TEMP_DIR", "/mnt/nvme/duckdb")
+
+        cfg = CatalogConfig.from_env()
+
+        assert cfg.temp_directory == "/mnt/nvme/duckdb"
+
+    def test_a_quote_in_a_path_cannot_break_out_of_the_literal(self):
+        cfg = CatalogConfig(temp_directory="/mnt/it's here")
+
+        stmts = "\n".join(resource_sql(cfg))
+
+        assert "'/mnt/it''s here'" in stmts
