@@ -22,6 +22,7 @@ from thyme.offline_iceberg import (
     DEFAULT_MAX_LOOKBACK,
     build_asof_sql,
     feature_columns_for,
+    resolve_spine,
 )
 
 
@@ -132,7 +133,10 @@ class TestLookbackPruning:
         # then the scan is bounded anyway -- an unbounded default would make
         # scan volume a function of the table's whole history
         assert DEFAULT_MAX_LOOKBACK in sql
-        assert "min_event_time -" in sql
+        # The lower bound reads the spine's earliest moment as a scalar
+        # subquery. Joining `bounds` in as a relation would plan as a
+        # NESTED_LOOP_JOIN instead -- see build_asof_sql.
+        assert "(SELECT min_event_time FROM bounds) -" in sql
 
     def test_max_lookback_none_opts_out_of_bounding(self):
         # given an explicit opt-out
@@ -304,3 +308,66 @@ class TestAsOfSemanticsMatchRocksDB:
         # then DuckDB agrees with RocksDB's raw byte comparison, not with time
         assert byte_order is True
         assert ("2026-08-04T09:14:02.1Z".encode() < "2026-08-04T09:14:02Z".encode())
+
+
+class TestPlanShape:
+    """Two query-shape choices that cost three orders of magnitude.
+
+    Both were found by `tests/bench_offline_pull.py`, and neither is visible in
+    a test small enough to run in CI: at a few thousand rows the wrong plan
+    finishes instantly. So the shape is asserted directly instead.
+    """
+
+    def test_bounds_are_scalar_subqueries_not_a_joined_relation(self):
+        # given the default pull
+        sql = build_asof_sql(
+            table="t",
+            feature_columns=["f"],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+        )
+
+        # then `bounds` is never a relation in the history scan's FROM. Written
+        # as `FROM t h, bounds`, the inequality against it plans as a
+        # NESTED_LOOP_JOIN: 87s of CPU on a 500k-row history.
+        assert "bounds" not in sql.split("FROM")[2].split("WHERE")[0]
+        assert "(SELECT max_event_time FROM bounds)" in sql
+
+    def test_the_spine_is_materialised_before_the_join(self):
+        # given a spine handed over as Arrow
+        import duckdb
+        import polars as pl
+
+        con = duckdb.connect()
+        con.execute(
+            "CREATE TABLE hist(entity_id VARCHAR, ts VARCHAR, "
+            "event_time TIMESTAMP, f DOUBLE)"
+        )
+        con.execute(
+            "INSERT INTO hist VALUES "
+            "('c123', '2026-08-04T09:00:00Z', '2026-08-04 09:00:00', 3.0)"
+        )
+        spine = pl.DataFrame(
+            {"entity_id": ["c123"], "timestamp": ["2026-08-04T10:00:00Z"]}
+        ).to_arrow()
+
+        resolve_spine(
+            con,
+            table="hist",
+            feature_columns=["f"],
+            spine=spine,
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+            max_lookback=None,
+        )
+
+        # then the join reads a real table, not the Arrow view. DuckDB will not
+        # use its native ASOF operator against an Arrow scan -- it falls back to
+        # NESTED_LOOP_JOIN, measured at 9k rows/sec against 5.1M.
+        kind = con.execute(
+            "SELECT table_type FROM information_schema.tables "
+            "WHERE table_name = 'thyme_spine'"
+        ).fetchone()
+        assert kind is not None, "spine was never materialised"
+        assert kind[0] in ("LOCAL TEMPORARY", "BASE TABLE"), kind
+        con.close()

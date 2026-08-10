@@ -15,6 +15,7 @@ both sides default it to ``rest``.
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass, field
 
 #: Catalog types this reader can attach. Mirrors the sink's `loadCatalog`.
@@ -84,6 +85,25 @@ class CatalogConfig:
     s3_access_key: str = field(default="", repr=False)
     s3_secret_key: str = field(default="", repr=False)
 
+    #: Where DuckDB spills when a join exceeds memory.
+    #:
+    #: **Not optional in practice.** An in-memory DuckDB with no temp directory
+    #: cannot spill at all: a join larger than RAM does not degrade, it takes
+    #: the process — and on a machine where the pull is running beside other
+    #: work, that is the machine. A training pull is exactly the shape that
+    #: exceeds memory, so this defaults to the system temp directory rather than
+    #: to "off".
+    #:
+    #: Point it at real disk. On many Linux setups `/tmp` is a tmpfs, i.e. RAM,
+    #: and spilling there is not spilling — it is the same OOM by a longer road.
+    temp_directory: str = ""
+    #: Cap on DuckDB's memory before it spills. Empty leaves DuckDB's own
+    #: default (about 80% of RAM). Set it lower to leave room for whatever else
+    #: the machine is doing.
+    memory_limit: str = ""
+    #: DuckDB worker threads. Empty leaves the default (one per core).
+    threads: str = ""
+
     @classmethod
     def from_env(cls) -> CatalogConfig:
         return cls(
@@ -96,6 +116,9 @@ class CatalogConfig:
             s3_endpoint=_env("OFFLINE_ENDPOINT"),
             s3_access_key=_env("OFFLINE_ACCESS_KEY"),
             s3_secret_key=_env("OFFLINE_SECRET_KEY"),
+            temp_directory=_env("THYME_OFFLINE_TEMP_DIR", tempfile.gettempdir()),
+            memory_limit=_env("THYME_OFFLINE_MEMORY_LIMIT"),
+            threads=_env("THYME_OFFLINE_THREADS"),
         )
 
     def table(self, entity_type: str) -> str:
@@ -213,6 +236,30 @@ def connect(config: CatalogConfig | None = None, alias: str | None = None):
 
     config = config or CatalogConfig.from_env()
     con = duckdb.connect()
+    for stmt in resource_sql(config):
+        con.execute(stmt)
     for stmt in attach_sql(config, alias=alias):
         con.execute(stmt)
     return con
+
+
+def resource_sql(config: CatalogConfig) -> list[str]:
+    """Memory and spill settings, applied before anything is attached.
+
+    Separate from :func:`attach_sql` because these are about the machine rather
+    than the catalog, and returned rather than executed for the same reason: so
+    they can be asserted without a DuckDB instance.
+
+    The temp directory is the one that matters. Without it a join larger than
+    memory cannot spill and the process dies; with it the same join gets slower.
+    See :attr:`CatalogConfig.temp_directory` for why the default is not `/tmp`
+    on every machine.
+    """
+    stmts = []
+    if config.temp_directory:
+        stmts.append(f"SET temp_directory = '{_escape(config.temp_directory)}'")
+    if config.memory_limit:
+        stmts.append(f"SET memory_limit = '{_escape(config.memory_limit)}'")
+    if config.threads:
+        stmts.append(f"SET threads = {int(config.threads)}")
+    return stmts
