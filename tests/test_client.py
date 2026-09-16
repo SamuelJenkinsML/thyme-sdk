@@ -1059,3 +1059,150 @@ class TestErase:
         # when / then
         with pytest.raises(Exception):
             client.erase(ds, ["u1"])
+
+
+# ---------------------------------------------------------------------------
+# Backfill (TH-156)
+# ---------------------------------------------------------------------------
+
+
+def _backfill_row(**overrides) -> dict:
+    row = {
+        "id": "bf-1",
+        "job_name": "count_orders_job",
+        "source_dataset": "BfOrder",
+        "status": "pending",
+        "mode": "replay",
+        "target_start": None,
+        "reset": False,
+        "completed_partitions": [],
+        "partition_count": 4,
+        "records_ingested": 0,
+        "cursor_value": "",
+        "created_at": "2026-09-16T10:00:00+00:00",
+        "completed_at": None,
+        "error_message": None,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_backfill_posts_the_job_mode_and_reset():
+    """Given a job, when backfill is called, then the body carries all three."""
+    # Given: a control plane that records what it was sent
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/backfills"
+        assert request.method == "POST"
+        sent.update(json.loads(request.content))
+        return httpx.Response(
+            202,
+            json={
+                "backfill_id": "bf-1",
+                "job_name": "count_orders_job",
+                "mode": "replay",
+                "reset": True,
+            },
+        )
+
+    config = Config(api_key="k", api_base="http://localhost:8080", query_url="http://localhost:8081")
+    client = ThymeClient(config=config, _transport=httpx.MockTransport(handler))
+
+    # When: a reset replay is requested
+    result = client.backfill("count_orders_job", reset=True)
+    client.close()
+
+    # Then: the body says which job, which kind, and whether to reset
+    assert sent == {"job_name": "count_orders_job", "mode": "replay", "reset": True}
+    assert result["backfill_id"] == "bf-1"
+
+
+def test_backfill_serialises_a_datetime_target_start():
+    """Given a datetime --from, when backfill is called, then it is sent as ISO-8601."""
+    # Given: a control plane that records the body
+    from datetime import datetime, timezone
+
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return httpx.Response(202, json={"backfill_id": "bf-1", "job_name": "j", "mode": "replay", "reset": False})
+
+    config = Config(api_key="k", api_base="http://localhost:8080", query_url="http://localhost:8081")
+    client = ThymeClient(config=config, _transport=httpx.MockTransport(handler))
+
+    # When: a datetime is given
+    client.backfill("j", target_start=datetime(2026, 6, 1, tzinfo=timezone.utc))
+    client.close()
+
+    # Then: the wire value ends in Z, which is what the service parses
+    assert sent["target_start"] == "2026-06-01T00:00:00Z"
+
+
+def test_wait_for_backfill_returns_the_completed_row():
+    """Given a replay that completes, when waiting, then the final row comes back."""
+    # Given: a listing that reports 'running', then 'completed'
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        status = "running" if calls["n"] == 1 else "completed"
+        partitions = [0, 1] if calls["n"] == 1 else [0, 1, 2, 3]
+        return httpx.Response(
+            200,
+            json=[_backfill_row(status=status, completed_partitions=partitions)],
+        )
+
+    config = Config(api_key="k", api_base="http://localhost:8080", query_url="http://localhost:8081")
+    client = ThymeClient(config=config, _transport=httpx.MockTransport(handler))
+
+    # When: the caller waits
+    seen: list[str] = []
+    row = client.wait_for_backfill(
+        "bf-1", timeout=10, poll_interval=0.01, on_progress=lambda r: seen.append(r["status"])
+    )
+    client.close()
+
+    # Then: the completed row comes back, and progress was reported on the way
+    assert row["status"] == "completed"
+    assert row["completed_partitions"] == [0, 1, 2, 3]
+    assert seen == ["running", "completed"]
+
+
+def test_wait_for_backfill_raises_with_the_reason_it_failed():
+    """Given a failed backfill, when waiting, then the error message is raised."""
+    # Given: a listing that reports a failure
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[_backfill_row(status="failed", error_message="the topic was deleted")],
+        )
+
+    config = Config(api_key="k", api_base="http://localhost:8080", query_url="http://localhost:8081")
+    client = ThymeClient(config=config, _transport=httpx.MockTransport(handler))
+
+    # When / Then: the reason reaches the caller
+    with pytest.raises(RuntimeError, match="the topic was deleted"):
+        client.wait_for_backfill("bf-1", timeout=10, poll_interval=0.01)
+    client.close()
+
+
+def test_list_backfills_filters_by_job_name():
+    """Given several jobs' backfills, when one job is named, then only its rows return."""
+    # Given: two jobs' rows
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[_backfill_row(), _backfill_row(id="bf-2", job_name="other_job")],
+        )
+
+    config = Config(api_key="k", api_base="http://localhost:8080", query_url="http://localhost:8081")
+    client = ThymeClient(config=config, _transport=httpx.MockTransport(handler))
+
+    # When: one job is asked for
+    rows = client.list_backfills("other_job")
+    client.close()
+
+    # Then: only its rows come back
+    assert [r["id"] for r in rows] == ["bf-2"]

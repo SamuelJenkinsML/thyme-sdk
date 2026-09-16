@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import io
 import os
-from typing import Any, Union
+import time
+from datetime import datetime
+from typing import Any, Callable, Union
 
 import httpx
 import polars as pl
@@ -572,6 +574,120 @@ class ThymeClient:
             json={"dataset": ds_name, "events": events},
         )
         response.raise_for_status()
+
+    # ------------------------------------------------------------------
+    # Backfill (TH-156)
+    # ------------------------------------------------------------------
+
+    def backfill(
+        self,
+        job_name: str,
+        *,
+        mode: str = "replay",
+        target_start: "datetime | str | None" = None,
+        reset: bool = False,
+    ) -> dict[str, Any]:
+        """Ask the control plane to backfill a job, and return the new row.
+
+        Committing a new pipeline already asks for its own backfill. This is for
+        everything else: running one again, starting one at a chosen date, or
+        reaching for history that the topic no longer holds.
+
+        Args:
+            job_name: The job to backfill, e.g. ``"count_orders_job"``.
+            mode: ``"replay"`` (the default) replays the job's input topic in
+                event-time order and re-publishes nothing. ``"repoll"`` re-reads
+                the external source and produces into the shared dataset topic,
+                which every other job on that topic then counts again — use it
+                only for history deeper than the topic keeps.
+            target_start: First event time whose rows the replay emits. Earlier
+                events still build state. ``None`` emits every row the topic
+                holds.
+            reset: Remove each partition's state first. Needed to run a backfill
+                again for a job that already has state, because a runner
+                replays only onto an empty store. This discards the job's
+                current state and rebuilds it from the topic.
+
+        Returns:
+            The service's response: ``backfill_id``, ``job_name``, ``mode``,
+            ``reset``.
+
+        Raises:
+            httpx.HTTPStatusError: 404 for an unknown job, 409 when a backfill
+                for it is already pending or running, 400 for a bad combination.
+        """
+        body: dict[str, Any] = {"job_name": job_name, "mode": mode, "reset": reset}
+        if target_start is not None:
+            body["target_start"] = (
+                target_start
+                if isinstance(target_start, str)
+                else target_start.isoformat().replace("+00:00", "Z")
+            )
+        response = self._def_http.post("/api/v1/backfills", json=body)
+        response.raise_for_status()
+        return response.json()
+
+    def list_backfills(self, job_name: str | None = None) -> list[dict[str, Any]]:
+        """Every backfill the control plane knows about, newest first.
+
+        Args:
+            job_name: Return only this job's backfills.
+        """
+        response = self._def_http.get("/api/v1/backfills")
+        response.raise_for_status()
+        rows = response.json()
+        if job_name is not None:
+            rows = [r for r in rows if r.get("job_name") == job_name]
+        return rows
+
+    def wait_for_backfill(
+        self,
+        backfill_id: str,
+        *,
+        timeout: float = 1800.0,
+        poll_interval: float = 2.0,
+        on_progress: "Callable[[dict[str, Any]], None] | None" = None,
+    ) -> dict[str, Any]:
+        """Poll until a backfill completes, fails, or the timeout runs out.
+
+        A replay is complete when every partition of the job has handed over to
+        live processing, which is what the service reports in
+        ``completed_partitions``.
+
+        Args:
+            backfill_id: The id ``backfill`` returned.
+            timeout: Seconds to wait before giving up.
+            poll_interval: Seconds between polls.
+            on_progress: Called with each row read, for progress output.
+
+        Returns:
+            The final row.
+
+        Raises:
+            RuntimeError: The backfill failed, or the id does not exist.
+            TimeoutError: It had not finished within ``timeout``.
+        """
+        deadline = time.monotonic() + timeout
+        row: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            rows = self.list_backfills()
+            row = next((r for r in rows if r.get("id") == backfill_id), None)
+            if row is None:
+                raise RuntimeError(f"No backfill {backfill_id}")
+            if on_progress is not None:
+                on_progress(row)
+            status = row.get("status")
+            if status == "completed":
+                return row
+            if status == "failed":
+                raise RuntimeError(
+                    f"Backfill {backfill_id} failed: {row.get('error_message') or 'no reason given'}"
+                )
+            time.sleep(poll_interval)
+        raise TimeoutError(
+            f"Backfill {backfill_id} was still {row.get('status') if row else 'unknown'} "
+            f"after {timeout:.0f}s"
+        )
 
     def erase(
         self,

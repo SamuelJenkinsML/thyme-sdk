@@ -1102,6 +1102,142 @@ def inspect(
         console.print(et)
 
 
+def _as_api_base(url: str) -> str:
+    """The service root, given either the root or the commit endpoint.
+
+    `THYME_API_URL` is set to the full commit endpoint in some deployments,
+    because that is what `thyme commit` wants. Every other call builds its own
+    path from the root, so a value ending in the commit path would produce
+    `.../api/v1/commit/api/v1/backfills`.
+    """
+    return url[: -len("/api/v1/commit")] if url.endswith("/api/v1/commit") else url.rstrip("/")
+
+
+@app.command()
+def backfill(
+    job_name: Optional[str] = typer.Argument(None, help="Job to backfill, e.g. 'count_orders_job'"),
+    list_only: bool = typer.Option(False, "--list", help="List backfills instead of starting one"),
+    mode: str = typer.Option("replay", "--mode", help="replay (default) or repoll"),
+    from_: Optional[str] = typer.Option(
+        None, "--from", help="First event time to emit rows for (ISO-8601). Earlier events only build state."
+    ),
+    reset: bool = typer.Option(
+        False, "--reset", help="Rebuild the job's state from its topic. Discards the state it has now."
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask to confirm --reset"),
+    wait: bool = typer.Option(False, "--wait", help="Block until the backfill completes"),
+    timeout: float = typer.Option(1800.0, "--timeout", help="Seconds to wait with --wait"),
+    json_output: bool = typer.Option(False, "--json", help="Output raw JSON"),
+    api_url: Optional[str] = typer.Option(None, "--api-url", envvar="THYME_API_URL"),
+    api_key: Optional[str] = typer.Option(None, "--api-key", envvar="THYME_API_KEY"),
+) -> None:
+    """Backfill a job's history, or list the backfills that have run.
+
+    Committing a new pipeline over a dataset that already has history asks for
+    its backfill on its own. Use this command to run one again, to start one at
+    a chosen date, or to reach for history the topic no longer holds.
+    """
+    config = _resolve_config()
+    if api_url:
+        config.api_base = _as_api_base(api_url)
+    if api_key:
+        config.api_key = api_key
+    client = ThymeClient(config=config)
+
+    try:
+        if list_only:
+            _print_backfills(client.list_backfills(job_name), json_output)
+            return
+
+        if not job_name:
+            typer.echo("Error: give a job name, or use --list.", err=True)
+            raise typer.Exit(1)
+
+        if mode not in ("replay", "repoll"):
+            typer.echo(f"Error: unknown --mode '{mode}'. Use 'replay' or 'repoll'.", err=True)
+            raise typer.Exit(1)
+
+        # A reset deletes the job's state and rebuilds it from the topic. If the
+        # topic no longer reaches as far back as the state does, the rebuilt
+        # history is shorter than the one it replaced, and nothing puts the old
+        # one back.
+        if reset and not yes:
+            typer.echo(
+                f"--reset deletes every partition's state for '{job_name}' and rebuilds it\n"
+                f"from {job_name}'s input topic. History the topic no longer holds is lost."
+            )
+            if not typer.confirm("Continue?"):
+                typer.echo("Nothing was done.")
+                raise typer.Exit(1)
+
+        try:
+            started = client.backfill(job_name, mode=mode, target_start=from_, reset=reset)
+        except HTTPStatusError as exc:
+            typer.echo(f"Error: {exc.response.status_code} {exc.response.text.strip()}", err=True)
+            raise typer.Exit(1)
+
+        backfill_id = started["backfill_id"]
+        if json_output and not wait:
+            typer.echo(json.dumps(started, indent=2))
+        else:
+            typer.echo(f"Started a {started['mode']} backfill for {job_name} ({backfill_id}).")
+
+        if not wait:
+            if not json_output:
+                typer.echo("Watch it with: thyme backfill --list")
+            return
+
+        seen: set[str] = set()
+
+        def progress(row: dict) -> None:
+            done = row.get("completed_partitions") or []
+            total = row.get("partition_count")
+            line = f"{row.get('status')} — {len(done)}/{total if total is not None else '?'} partitions"
+            if line not in seen:
+                seen.add(line)
+                typer.echo(line)
+
+        try:
+            final = client.wait_for_backfill(
+                backfill_id, timeout=timeout, on_progress=None if json_output else progress
+            )
+        except (RuntimeError, TimeoutError) as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1)
+
+        if json_output:
+            typer.echo(json.dumps(final, indent=2))
+        else:
+            typer.echo(f"Completed at {final.get('completed_at')}.")
+    finally:
+        client.close()
+
+
+def _print_backfills(rows: list[dict], json_output: bool) -> None:
+    if json_output:
+        typer.echo(json.dumps(rows, indent=2))
+        return
+    if not rows:
+        typer.echo("No backfills.")
+        return
+    table = Table(title="Backfills")
+    for column in ("Job", "Mode", "Status", "Partitions", "Reset", "Started", "Finished"):
+        table.add_column(column)
+    for row in rows:
+        done = row.get("completed_partitions") or []
+        total = row.get("partition_count")
+        table.add_row(
+            row.get("job_name", ""),
+            row.get("mode", ""),
+            row.get("status", ""),
+            f"{len(done)}/{total}" if total is not None else str(len(done)),
+            "yes" if row.get("reset") else "",
+            (row.get("created_at") or "")[:19],
+            (row.get("completed_at") or "")[:19],
+        )
+    Console().print(table)
+
+
 def main() -> None:
     app()
 
