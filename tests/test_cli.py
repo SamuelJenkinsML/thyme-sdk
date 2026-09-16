@@ -644,3 +644,266 @@ def test_commit_json_fallback_also_carries_the_narrowing_opt_in():
     # telling the user to pass a flag they already passed.
     posted = mock_post.call_args.kwargs["json"]
     assert posted["allow_retention_narrowing"] is True
+
+
+# ---------------------------------------------------------------------------
+# thyme backfill tests (TH-156)
+# ---------------------------------------------------------------------------
+
+MOCK_BACKFILL_ROWS = [
+    {
+        "id": "bf-1",
+        "job_name": "count_orders_job",
+        "source_dataset": "BfOrder",
+        "status": "completed",
+        "mode": "replay",
+        "target_start": None,
+        "reset": False,
+        "completed_partitions": [0, 1, 2, 3],
+        "partition_count": 4,
+        "records_ingested": 0,
+        "cursor_value": "",
+        "created_at": "2026-09-16T10:00:00+00:00",
+        "completed_at": "2026-09-16T10:00:48+00:00",
+        "error_message": None,
+    },
+    {
+        "id": "bf-2",
+        "job_name": "other_job",
+        "source_dataset": "Other",
+        "status": "running",
+        "mode": "repoll",
+        "target_start": None,
+        "reset": False,
+        "completed_partitions": [],
+        "partition_count": 1,
+        "records_ingested": 12,
+        "cursor_value": "",
+        "created_at": "2026-09-16T11:00:00+00:00",
+        "completed_at": None,
+        "error_message": None,
+    },
+]
+
+
+def test_backfill_starts_a_replay_by_default():
+    """Given a job name, when backfill runs, then it POSTs a replay request."""
+    # Given: a control plane that accepts the request
+    with patch("thyme.client.ThymeClient.backfill") as mock_backfill:
+        mock_backfill.return_value = {
+            "backfill_id": "bf-9",
+            "job_name": "count_orders_job",
+            "mode": "replay",
+            "reset": False,
+        }
+
+        # When: the job is backfilled with no options
+        result = runner.invoke(app, ["backfill", "count_orders_job"])
+
+    # Then: a replay was asked for, with no target start and no reset
+    assert result.exit_code == 0, result.output
+    mock_backfill.assert_called_once_with(
+        "count_orders_job", mode="replay", target_start=None, reset=False
+    )
+    assert "bf-9" in result.output
+
+
+def test_backfill_passes_the_target_start_and_mode_through():
+    """Given --from and --mode, when backfill runs, then both reach the client."""
+    # Given: a control plane that accepts the request
+    with patch("thyme.client.ThymeClient.backfill") as mock_backfill:
+        mock_backfill.return_value = {
+            "backfill_id": "bf-10",
+            "job_name": "count_orders_job",
+            "mode": "repoll",
+            "reset": False,
+        }
+
+        # When: a re-poll from a chosen date is asked for
+        result = runner.invoke(
+            app,
+            ["backfill", "count_orders_job", "--mode", "repoll", "--from", "2026-06-01T00:00:00Z"],
+        )
+
+    # Then: both are passed on unchanged
+    assert result.exit_code == 0, result.output
+    mock_backfill.assert_called_once_with(
+        "count_orders_job", mode="repoll", target_start="2026-06-01T00:00:00Z", reset=False
+    )
+
+
+def test_backfill_rejects_an_unknown_mode_without_calling_the_service():
+    """Given a bad --mode, when backfill runs, then it fails before any request."""
+    # Given: nothing — the check is local
+    with patch("thyme.client.ThymeClient.backfill") as mock_backfill:
+        # When: an unknown mode is given
+        result = runner.invoke(app, ["backfill", "count_orders_job", "--mode", "rewind"])
+
+    # Then: it stops, and the service is never asked
+    assert result.exit_code == 1
+    assert "rewind" in result.output
+    mock_backfill.assert_not_called()
+
+
+def test_backfill_asks_before_a_reset_and_does_nothing_when_refused():
+    """Given --reset without --yes, when the prompt is declined, then nothing runs.
+
+    A reset deletes the job's state and rebuilds it from the topic. History the
+    topic no longer holds does not come back, so it is not a default.
+    """
+    # Given: a control plane that would accept the request
+    with patch("thyme.client.ThymeClient.backfill") as mock_backfill:
+        # When: the confirmation is declined
+        result = runner.invoke(app, ["backfill", "count_orders_job", "--reset"], input="n\n")
+
+    # Then: no request was made
+    assert result.exit_code == 1
+    assert "Nothing was done." in result.output
+    mock_backfill.assert_not_called()
+
+
+def test_backfill_reset_proceeds_with_yes():
+    """Given --reset --yes, when backfill runs, then it asks nothing and resets."""
+    # Given: a control plane that accepts the request
+    with patch("thyme.client.ThymeClient.backfill") as mock_backfill:
+        mock_backfill.return_value = {
+            "backfill_id": "bf-11",
+            "job_name": "count_orders_job",
+            "mode": "replay",
+            "reset": True,
+        }
+
+        # When: the reset is confirmed up front
+        result = runner.invoke(app, ["backfill", "count_orders_job", "--reset", "--yes"])
+
+    # Then: the reset was requested
+    assert result.exit_code == 0, result.output
+    mock_backfill.assert_called_once_with(
+        "count_orders_job", mode="replay", target_start=None, reset=True
+    )
+
+
+def test_backfill_list_filters_by_job():
+    """Given --list with a job name, when it runs, then only that job is shown."""
+    # Given: two jobs' backfills
+    with patch("thyme.client.ThymeClient.list_backfills") as mock_list:
+        mock_list.return_value = [MOCK_BACKFILL_ROWS[0]]
+
+        # When: one job is listed
+        result = runner.invoke(app, ["backfill", "count_orders_job", "--list", "--json"])
+
+    # Then: the client did the filtering, and the row comes back
+    assert result.exit_code == 0, result.output
+    mock_list.assert_called_once_with("count_orders_job")
+    rows = json.loads(result.output)
+    assert [r["job_name"] for r in rows] == ["count_orders_job"]
+
+
+def test_backfill_list_shows_partition_progress():
+    """Given --list, when a replay is part-done, then the table shows how far."""
+    # Given: one completed replay and one running re-poll
+    with patch("thyme.client.ThymeClient.list_backfills") as mock_list:
+        mock_list.return_value = MOCK_BACKFILL_ROWS
+
+        # When: they are listed
+        result = runner.invoke(app, ["backfill", "--list"])
+
+    # Then: the mode and the partition progress are both visible
+    assert result.exit_code == 0, result.output
+    assert "replay" in result.output
+    assert "repoll" in result.output
+    assert "4/4" in result.output
+    assert "0/1" in result.output
+
+
+def test_backfill_requires_a_job_name_unless_listing():
+    """Given no job name and no --list, when backfill runs, then it explains."""
+    # Given: nothing
+    # When: the command is run bare
+    result = runner.invoke(app, ["backfill"])
+
+    # Then: it asks for a job name
+    assert result.exit_code == 1
+    assert "job name" in result.output
+
+
+def test_backfill_wait_polls_until_the_replay_completes():
+    """Given --wait, when the replay completes, then the final row is reported."""
+    # Given: a started backfill that completes on the second poll
+    with (
+        patch("thyme.client.ThymeClient.backfill") as mock_backfill,
+        patch("thyme.client.ThymeClient.wait_for_backfill") as mock_wait,
+    ):
+        mock_backfill.return_value = {
+            "backfill_id": "bf-1",
+            "job_name": "count_orders_job",
+            "mode": "replay",
+            "reset": False,
+        }
+        mock_wait.return_value = MOCK_BACKFILL_ROWS[0]
+
+        # When: the caller waits for it
+        result = runner.invoke(app, ["backfill", "count_orders_job", "--wait"])
+
+    # Then: it waited on the id it started, and reported the finish
+    assert result.exit_code == 0, result.output
+    assert mock_wait.call_args.args[0] == "bf-1"
+    assert "2026-09-16T10:00:48" in result.output
+
+
+def test_backfill_wait_reports_a_failure_as_an_error():
+    """Given a backfill that fails, when --wait is used, then the CLI exits 1."""
+    # Given: a wait that raises
+    with (
+        patch("thyme.client.ThymeClient.backfill") as mock_backfill,
+        patch("thyme.client.ThymeClient.wait_for_backfill") as mock_wait,
+    ):
+        mock_backfill.return_value = {
+            "backfill_id": "bf-1",
+            "job_name": "count_orders_job",
+            "mode": "replay",
+            "reset": False,
+        }
+        mock_wait.side_effect = RuntimeError("Backfill bf-1 failed: the topic was deleted")
+
+        # When: the caller waits for it
+        result = runner.invoke(app, ["backfill", "count_orders_job", "--wait"])
+
+    # Then: the reason is reported, not swallowed
+    assert result.exit_code == 1
+    assert "the topic was deleted" in result.output
+
+
+def test_backfill_reports_a_conflict_from_the_service():
+    """Given a backfill already running, when another is asked for, then 409 shows."""
+    # Given: a service that refuses with 409
+    with patch("thyme.client.ThymeClient.backfill") as mock_backfill:
+        response = httpx.Response(
+            409,
+            text="Backfill bf-1 for job 'count_orders_job' is running.",
+            request=httpx.Request("POST", "http://localhost:8080/api/v1/backfills"),
+        )
+        mock_backfill.side_effect = httpx.HTTPStatusError(
+            "conflict", request=response.request, response=response
+        )
+
+        # When: a second backfill is asked for
+        result = runner.invoke(app, ["backfill", "count_orders_job"])
+
+    # Then: the service's reason reaches the operator
+    assert result.exit_code == 1
+    assert "409" in result.output
+    assert "is running" in result.output
+
+
+def test_as_api_base_strips_the_commit_endpoint():
+    """Given THYME_API_URL set to the commit endpoint, then the root is derived.
+
+    Some deployments set THYME_API_URL to the full commit URL, because that is
+    what `thyme commit` wants. Every other call builds its own path.
+    """
+    from thyme.cli import _as_api_base
+
+    assert _as_api_base("http://alb.example/api/v1/commit") == "http://alb.example"
+    assert _as_api_base("http://alb.example/") == "http://alb.example"
+    assert _as_api_base("http://alb.example") == "http://alb.example"
