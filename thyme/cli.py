@@ -231,6 +231,21 @@ def _check_health(url: str, headers: dict[str, str] | None = None) -> bool:
         return False
 
 
+def _backfill_progress(row: dict) -> str:
+    """How far a backfill has got, in the terms its own kind measures.
+
+    A re-poll counts records as it re-reads the source. A replay counts
+    partitions handed over to live processing and never touches
+    `records_ingested`, so reporting records for one shows "0" from start to
+    finish and reads as "nothing happened".
+    """
+    if row.get("mode") == "repoll":
+        return f"{row.get('records_ingested', 0)} records"
+    done = len(row.get("completed_partitions") or [])
+    total = row.get("partition_count")
+    return f"{done}/{total} partitions" if total is not None else f"{done} partitions"
+
+
 @app.command()
 def status(
     json_output: bool = typer.Option(False, "--json", help="Output raw JSON"),
@@ -332,10 +347,17 @@ def status(
         t = Table(title="Backfills")
         t.add_column("Job")
         t.add_column("Source")
+        t.add_column("Mode")
         t.add_column("Status")
-        t.add_column("Records")
+        t.add_column("Progress")
         for b in data["backfills"]:
-            t.add_row(b["job_name"], b["source_dataset"], b["status"], str(b["records_ingested"]))
+            t.add_row(
+                b["job_name"],
+                b["source_dataset"],
+                b.get("mode", ""),
+                b["status"],
+                _backfill_progress(b),
+            )
         console.print(t)
 
     # Recent events
