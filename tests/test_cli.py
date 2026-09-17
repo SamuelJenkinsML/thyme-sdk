@@ -907,3 +907,56 @@ def test_as_api_base_strips_the_commit_endpoint():
     assert _as_api_base("http://alb.example/api/v1/commit") == "http://alb.example"
     assert _as_api_base("http://alb.example/") == "http://alb.example"
     assert _as_api_base("http://alb.example") == "http://alb.example"
+
+
+def test_status_reports_replay_progress_in_partitions_not_records():
+    """Given a replay backfill, when status runs, then it shows partitions.
+
+    A replay never touches `records_ingested`, so a Records column shows 0 from
+    start to finish and reads as "nothing happened".
+    """
+    # Given a status endpoint reporting one completed replay
+    status = dict(MOCK_STATUS_RESPONSE)
+    status["backfills"] = [MOCK_BACKFILL_ROWS[0]]
+    with patch("httpx.get") as mock_get:
+        def side_effect(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = status if "/api/v1/status" in url else {}
+            resp.raise_for_status.return_value = None
+            return resp
+        mock_get.side_effect = side_effect
+
+        # When status runs
+        result = runner.invoke(app, ["status"])
+
+    # Then the progress is partitions, and the mode is named
+    assert result.exit_code == 0, result.output
+    assert "4/4" in result.output
+    assert "replay" in result.output
+
+
+def test_status_still_reports_repoll_progress_in_records():
+    """Given a re-poll, when status runs, then it shows records.
+
+    A re-poll re-reads the source and counts records as it goes; partitions
+    would say nothing about it.
+    """
+    # Given a status endpoint reporting one running re-poll
+    status = dict(MOCK_STATUS_RESPONSE)
+    status["backfills"] = [MOCK_BACKFILL_ROWS[1]]
+    with patch("httpx.get") as mock_get:
+        def side_effect(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = status if "/api/v1/status" in url else {}
+            resp.raise_for_status.return_value = None
+            return resp
+        mock_get.side_effect = side_effect
+
+        # When status runs
+        result = runner.invoke(app, ["status"])
+
+    # Then the record count is what it reports
+    assert result.exit_code == 0, result.output
+    assert "12 records" in result.output
