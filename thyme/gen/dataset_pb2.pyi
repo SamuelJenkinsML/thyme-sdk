@@ -49,20 +49,30 @@ class Expectation(_message.Message):
     def __init__(self, type: _Optional[str] = ..., column: _Optional[str] = ..., mostly: _Optional[float] = ..., min_value: _Optional[float] = ..., max_value: _Optional[float] = ..., values: _Optional[_Iterable[str]] = ..., type_name: _Optional[str] = ...) -> None: ...
 
 class Pipeline(_message.Message):
-    __slots__ = ("name", "version", "input_datasets", "output_dataset", "operators", "pycode")
+    __slots__ = ("name", "version", "input_datasets", "output_dataset", "operators", "pycode", "backfill")
     NAME_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     INPUT_DATASETS_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_DATASET_FIELD_NUMBER: _ClassVar[int]
     OPERATORS_FIELD_NUMBER: _ClassVar[int]
     PYCODE_FIELD_NUMBER: _ClassVar[int]
+    BACKFILL_FIELD_NUMBER: _ClassVar[int]
     name: str
     version: int
     input_datasets: _containers.RepeatedScalarFieldContainer[str]
     output_dataset: str
     operators: _containers.RepeatedCompositeFieldContainer[Operator]
     pycode: _pycode_pb2.PyCode
-    def __init__(self, name: _Optional[str] = ..., version: _Optional[int] = ..., input_datasets: _Optional[_Iterable[str]] = ..., output_dataset: _Optional[str] = ..., operators: _Optional[_Iterable[_Union[Operator, _Mapping]]] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ...) -> None: ...
+    backfill: Backfill
+    def __init__(self, name: _Optional[str] = ..., version: _Optional[int] = ..., input_datasets: _Optional[_Iterable[str]] = ..., output_dataset: _Optional[str] = ..., operators: _Optional[_Iterable[_Union[Operator, _Mapping]]] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., backfill: _Optional[_Union[Backfill, _Mapping]] = ...) -> None: ...
+
+class Backfill(_message.Message):
+    __slots__ = ("enabled", "since")
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    SINCE_FIELD_NUMBER: _ClassVar[int]
+    enabled: bool
+    since: str
+    def __init__(self, enabled: bool = ..., since: _Optional[str] = ...) -> None: ...
 
 class Operator(_message.Message):
     __slots__ = ("id", "aggregate", "filter", "transform", "group_by", "temporal_join", "assign")

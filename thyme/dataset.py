@@ -267,6 +267,11 @@ def _discover_pipelines(cls: type) -> None:
             continue
         version = getattr(method, "_pipeline_version", 1)
         input_datasets = getattr(method, "_pipeline_inputs", [])
+        # Absent attribute means a @pipeline from an older SDK: treat it as the
+        # default, which is what it did before the parameter existed.
+        from thyme.pipeline import _BACKFILL_UNSET, Backfill
+
+        backfill = getattr(method, "_pipeline_backfill", _BACKFILL_UNSET)
         try:
             pl = Pipeline(method, version, input_datasets)
             operators = pl.get_operators()
@@ -290,6 +295,9 @@ def _discover_pipelines(cls: type) -> None:
             "output_dataset": cls.__name__,
             "operators": operators,
             "source_code": source_code,
+            "backfill": (
+                backfill.to_wire() if backfill is not None else Backfill.disabled_wire()
+            ),
         }
         key = (cls.__name__, method.__name__)
         _PIPELINE_REGISTRY[key] = pipeline_meta
