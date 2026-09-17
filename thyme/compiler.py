@@ -243,6 +243,15 @@ def compile_pipeline(pipeline_meta: dict) -> dataset_pb2.Pipeline:
     if "source_code" in pipeline_meta:
         pycode = _make_pycode(pipeline_meta["source_code"], pipeline_meta["name"])
 
+    # Absent means the default — every row the input topic retains. Sending no
+    # Backfill message says exactly that, and is what an older SDK sends.
+    bf = pipeline_meta.get("backfill")
+    backfill = (
+        dataset_pb2.Backfill(enabled=bf.get("enabled", True), since=bf.get("since") or "")
+        if bf
+        else None
+    )
+
     return dataset_pb2.Pipeline(
         name=pipeline_meta["name"],
         version=pipeline_meta.get("version", 1),
@@ -250,6 +259,7 @@ def compile_pipeline(pipeline_meta: dict) -> dataset_pb2.Pipeline:
         output_dataset=pipeline_meta.get("output_dataset", ""),
         operators=operators,
         pycode=pycode,
+        backfill=backfill,
     )
 
 
@@ -434,6 +444,7 @@ def compile_commit_request(
     featuresets: List[dict],
     sources: List[dict],
     allow_retention_narrowing: bool = False,
+    backfill: bool = True,
 ) -> services_pb2.CommitRequest:
     # `allow_retention_narrowing` defaults to False rather than being required:
     # shortening a topic's retention deletes history irreversibly, so a caller
@@ -445,6 +456,7 @@ def compile_commit_request(
         featuresets=[compile_featureset(f) for f in featuresets],
         sources=[compile_source(s) for s in sources],
         allow_retention_narrowing=allow_retention_narrowing,
+        backfill=backfill,
     )
 
 

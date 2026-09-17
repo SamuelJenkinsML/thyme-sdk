@@ -126,11 +126,11 @@ class StateWrite(_message.Message):
     VALUE_FIELD_NUMBER: _ClassVar[int]
     IS_RAW_KEY_FIELD_NUMBER: _ClassVar[int]
     entity_type: str
-    entity_id: str
+    entity_id: bytes
     ts_bytes: bytes
     value: bytes
     is_raw_key: bool
-    def __init__(self, entity_type: _Optional[str] = ..., entity_id: _Optional[str] = ..., ts_bytes: _Optional[bytes] = ..., value: _Optional[bytes] = ..., is_raw_key: bool = ...) -> None: ...
+    def __init__(self, entity_type: _Optional[str] = ..., entity_id: _Optional[bytes] = ..., ts_bytes: _Optional[bytes] = ..., value: _Optional[bytes] = ..., is_raw_key: bool = ...) -> None: ...
 
 class ReplayEntry(_message.Message):
     __slots__ = ("job_name", "input_partition", "input_offset", "watermark_secs", "writes", "internal_writes", "internal_deletes")

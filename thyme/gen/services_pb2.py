@@ -27,7 +27,7 @@ from thyme.gen import featureset_pb2 as thyme_dot_featureset__pb2
 from thyme.gen import connector_pb2 as thyme_dot_connector__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14thyme/services.proto\x12\x05thyme\x1a\x13thyme/dataset.proto\x1a\x16thyme/featureset.proto\x1a\x15thyme/connector.proto\"\xd1\x01\n\rCommitRequest\x12\x0f\n\x07message\x18\x01 \x01(\t\x12 \n\x08\x64\x61tasets\x18\x02 \x03(\x0b\x32\x0e.thyme.Dataset\x12\"\n\tpipelines\x18\x03 \x03(\x0b\x32\x0f.thyme.Pipeline\x12&\n\x0b\x66\x65\x61turesets\x18\x04 \x03(\x0b\x32\x11.thyme.Featureset\x12\x1e\n\x07sources\x18\x05 \x03(\x0b\x32\r.thyme.Source\x12!\n\x19\x61llow_retention_narrowing\x18\x06 \x01(\x08\"\x9d\x01\n\x0e\x43ommitResponse\x12\x11\n\tcommit_id\x18\x01 \x01(\t\x12\x16\n\x0e\x64\x61tasets_count\x18\x02 \x01(\x05\x12\x17\n\x0fpipelines_count\x18\x03 \x01(\x05\x12\x19\n\x11\x66\x65\x61turesets_count\x18\x04 \x01(\x05\x12\x14\n\x0cjobs_created\x18\x05 \x01(\x05\x12\x16\n\x0etopics_created\x18\x06 \x03(\t\"[\n\x0cQueryRequest\x12\x13\n\x0b\x65ntity_type\x18\x01 \x01(\t\x12\x11\n\tentity_id\x18\x02 \x01(\t\x12\x10\n\x08\x66\x65\x61tures\x18\x03 \x03(\t\x12\x11\n\ttimestamp\x18\x04 \x01(\t\"\xac\x01\n\rQueryResponse\x12\x13\n\x0b\x65ntity_type\x18\x01 \x01(\t\x12\x11\n\tentity_id\x18\x02 \x01(\t\x12\x34\n\x08\x66\x65\x61tures\x18\x03 \x03(\x0b\x32\".thyme.QueryResponse.FeaturesEntry\x12\x0c\n\x04mode\x18\x04 \x01(\t\x1a/\n\rFeaturesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\xe3\x01\n\x08QueryRun\x12\n\n\x02id\x18\x01 \x01(\t\x12\x12\n\nfeatureset\x18\x02 \x01(\t\x12\x12\n\nentity_ids\x18\x03 \x03(\t\x12\x1b\n\x13requested_timestamp\x18\x04 \x01(\t\x12\x0c\n\x04kind\x18\x05 \x01(\t\x12\x11\n\trow_count\x18\x06 \x01(\x05\x12\x11\n\thit_count\x18\x07 \x01(\x05\x12\x12\n\nlatency_ms\x18\x08 \x01(\x05\x12\x1b\n\x13\x61pi_key_fingerprint\x18\t \x01(\t\x12\r\n\x05\x65rror\x18\n \x01(\t\x12\x12\n\ncreated_at\x18\x0b \x01(\t\"K\n\x15ListQueryRunsResponse\x12\x1d\n\x04runs\x18\x01 \x03(\x0b\x32\x0f.thyme.QueryRun\x12\x13\n\x0bnext_cursor\x18\x02 \x01(\tb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14thyme/services.proto\x12\x05thyme\x1a\x13thyme/dataset.proto\x1a\x16thyme/featureset.proto\x1a\x15thyme/connector.proto\"\xf5\x01\n\rCommitRequest\x12\x0f\n\x07message\x18\x01 \x01(\t\x12 \n\x08\x64\x61tasets\x18\x02 \x03(\x0b\x32\x0e.thyme.Dataset\x12\"\n\tpipelines\x18\x03 \x03(\x0b\x32\x0f.thyme.Pipeline\x12&\n\x0b\x66\x65\x61turesets\x18\x04 \x03(\x0b\x32\x11.thyme.Featureset\x12\x1e\n\x07sources\x18\x05 \x03(\x0b\x32\r.thyme.Source\x12!\n\x19\x61llow_retention_narrowing\x18\x06 \x01(\x08\x12\x15\n\x08\x62\x61\x63kfill\x18\x07 \x01(\x08H\x00\x88\x01\x01\x42\x0b\n\t_backfill\"\x9d\x01\n\x0e\x43ommitResponse\x12\x11\n\tcommit_id\x18\x01 \x01(\t\x12\x16\n\x0e\x64\x61tasets_count\x18\x02 \x01(\x05\x12\x17\n\x0fpipelines_count\x18\x03 \x01(\x05\x12\x19\n\x11\x66\x65\x61turesets_count\x18\x04 \x01(\x05\x12\x14\n\x0cjobs_created\x18\x05 \x01(\x05\x12\x16\n\x0etopics_created\x18\x06 \x03(\t\"[\n\x0cQueryRequest\x12\x13\n\x0b\x65ntity_type\x18\x01 \x01(\t\x12\x11\n\tentity_id\x18\x02 \x01(\t\x12\x10\n\x08\x66\x65\x61tures\x18\x03 \x03(\t\x12\x11\n\ttimestamp\x18\x04 \x01(\t\"\xac\x01\n\rQueryResponse\x12\x13\n\x0b\x65ntity_type\x18\x01 \x01(\t\x12\x11\n\tentity_id\x18\x02 \x01(\t\x12\x34\n\x08\x66\x65\x61tures\x18\x03 \x03(\x0b\x32\".thyme.QueryResponse.FeaturesEntry\x12\x0c\n\x04mode\x18\x04 \x01(\t\x1a/\n\rFeaturesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\xe3\x01\n\x08QueryRun\x12\n\n\x02id\x18\x01 \x01(\t\x12\x12\n\nfeatureset\x18\x02 \x01(\t\x12\x12\n\nentity_ids\x18\x03 \x03(\t\x12\x1b\n\x13requested_timestamp\x18\x04 \x01(\t\x12\x0c\n\x04kind\x18\x05 \x01(\t\x12\x11\n\trow_count\x18\x06 \x01(\x05\x12\x11\n\thit_count\x18\x07 \x01(\x05\x12\x12\n\nlatency_ms\x18\x08 \x01(\x05\x12\x1b\n\x13\x61pi_key_fingerprint\x18\t \x01(\t\x12\r\n\x05\x65rror\x18\n \x01(\t\x12\x12\n\ncreated_at\x18\x0b \x01(\t\"K\n\x15ListQueryRunsResponse\x12\x1d\n\x04runs\x18\x01 \x03(\x0b\x32\x0f.thyme.QueryRun\x12\x13\n\x0bnext_cursor\x18\x02 \x01(\tb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -37,17 +37,17 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_QUERYRESPONSE_FEATURESENTRY']._loaded_options = None
   _globals['_QUERYRESPONSE_FEATURESENTRY']._serialized_options = b'8\001'
   _globals['_COMMITREQUEST']._serialized_start=100
-  _globals['_COMMITREQUEST']._serialized_end=309
-  _globals['_COMMITRESPONSE']._serialized_start=312
-  _globals['_COMMITRESPONSE']._serialized_end=469
-  _globals['_QUERYREQUEST']._serialized_start=471
-  _globals['_QUERYREQUEST']._serialized_end=562
-  _globals['_QUERYRESPONSE']._serialized_start=565
-  _globals['_QUERYRESPONSE']._serialized_end=737
-  _globals['_QUERYRESPONSE_FEATURESENTRY']._serialized_start=690
-  _globals['_QUERYRESPONSE_FEATURESENTRY']._serialized_end=737
-  _globals['_QUERYRUN']._serialized_start=740
-  _globals['_QUERYRUN']._serialized_end=967
-  _globals['_LISTQUERYRUNSRESPONSE']._serialized_start=969
-  _globals['_LISTQUERYRUNSRESPONSE']._serialized_end=1044
+  _globals['_COMMITREQUEST']._serialized_end=345
+  _globals['_COMMITRESPONSE']._serialized_start=348
+  _globals['_COMMITRESPONSE']._serialized_end=505
+  _globals['_QUERYREQUEST']._serialized_start=507
+  _globals['_QUERYREQUEST']._serialized_end=598
+  _globals['_QUERYRESPONSE']._serialized_start=601
+  _globals['_QUERYRESPONSE']._serialized_end=773
+  _globals['_QUERYRESPONSE_FEATURESENTRY']._serialized_start=726
+  _globals['_QUERYRESPONSE_FEATURESENTRY']._serialized_end=773
+  _globals['_QUERYRUN']._serialized_start=776
+  _globals['_QUERYRUN']._serialized_end=1003
+  _globals['_LISTQUERYRUNSRESPONSE']._serialized_start=1005
+  _globals['_LISTQUERYRUNSRESPONSE']._serialized_end=1080
 # @@protoc_insertion_point(module_scope)

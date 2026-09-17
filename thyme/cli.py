@@ -116,6 +116,16 @@ def commit(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print payload instead of POSTing"),
     output: Optional[Path] = typer.Option(None, "--output", help="Write payload to file (with --dry-run)"),
     api_url: Optional[str] = typer.Option(None, "--api-url", envvar="THYME_API_URL", help="Control plane API URL"),
+    no_backfill: bool = typer.Option(
+        False,
+        "--no-backfill",
+        help=(
+            "Refuse the commit if it would backfill anything. Committing a "
+            "pipeline over a dataset that already has history computes that "
+            "history, which can be a large job; this turns that into an error "
+            "naming the jobs rather than a surprise."
+        ),
+    ),
     allow_retention_narrowing: bool = typer.Option(
         False,
         "--allow-retention-narrowing",
@@ -153,6 +163,7 @@ def commit(
     # JSON path must carry it too or the fallback would silently drop the
     # opt-in and the server would refuse a narrowing the user did ask for.
     payload["allow_retention_narrowing"] = allow_retention_narrowing
+    payload["backfill"] = not no_backfill
     payload_json = json.dumps(payload, indent=2)
 
     if dry_run:
@@ -188,6 +199,7 @@ def commit(
                 featuresets=payload["featuresets"],
                 sources=payload["sources"],
                 allow_retention_narrowing=allow_retention_narrowing,
+                backfill=not no_backfill,
             )
             proto_bytes = proto_msg.SerializeToString()
         except Exception as e:
@@ -214,12 +226,25 @@ def commit(
         n_src = len(payload["sources"])
         fmt = "protobuf" if proto_bytes is not None else "JSON"
         typer.echo(f"Committed {n_ds} dataset(s), {n_pl} pipeline(s), {n_fs} featureset(s), {n_src} source(s) to {url} [format={fmt}]")
+        # A commit starts backfills on its own now (TH-382), and one can be a
+        # large job. Say what started, so it is not a surprise found later in
+        # `thyme status`.
+        _report_started_backfills(response)
     except HTTPStatusError as e:
         typer.echo(f"Error: {e.response.status_code} {e.response.text}", err=True)
         raise typer.Exit(1)
     except httpx.ConnectError as e:
         typer.echo(f"Error: Could not connect to {url}: {e}", err=True)
         raise typer.Exit(1)
+
+
+def _report_started_backfills(response: httpx.Response) -> None:
+    try:
+        started = response.json().get("backfills") or []
+    except ValueError:
+        return
+    for b in started:
+        typer.echo(f"Backfilling {b['job_name']} ({b['mode']}) — watch it with: thyme backfill --list")
 
 
 def _check_health(url: str, headers: dict[str, str] | None = None) -> bool:

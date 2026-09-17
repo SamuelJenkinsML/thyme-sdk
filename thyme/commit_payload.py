@@ -15,6 +15,18 @@ class PyCodeDef:
 
 
 @dataclass
+class BackfillDef:
+    """Matches Rust BackfillDef for API JSON.
+
+    `enabled` is explicit rather than encoded as a null `backfill`, so an older
+    SDK that sends no key is unambiguous: absent means the default.
+    """
+
+    enabled: bool = True
+    since: Optional[str] = None
+
+
+@dataclass
 class PipelineDef:
     """Matches Rust PipelineDef for API JSON."""
 
@@ -24,6 +36,7 @@ class PipelineDef:
     output_dataset: str
     operators: List[Any]
     pycode: Optional[PyCodeDef] = None
+    backfill: Optional[BackfillDef] = None
 
 
 @dataclass
@@ -126,6 +139,7 @@ def _to_pipeline(p: dict) -> PipelineDef:
             source_code=p["source_code"],
             generated_code=p["source_code"],
         )
+    bf = p.get("backfill")
     return PipelineDef(
         name=p["name"],
         version=p.get("version", 1),
@@ -133,6 +147,7 @@ def _to_pipeline(p: dict) -> PipelineDef:
         output_dataset=p.get("output_dataset", ""),
         operators=[_wire_operator(op) for op in p.get("operators", [])],
         pycode=pycode,
+        backfill=BackfillDef(enabled=bf.get("enabled", True), since=bf.get("since")) if bf else None,
     )
 
 

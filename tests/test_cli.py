@@ -960,3 +960,84 @@ def test_status_still_reports_repoll_progress_in_records():
     # Then the record count is what it reports
     assert result.exit_code == 0, result.output
     assert "12 records" in result.output
+
+
+# ---------------------------------------------------------------------------
+# thyme commit and backfills (TH-382)
+# ---------------------------------------------------------------------------
+
+
+def test_commit_dry_run_allows_a_backfill_by_default():
+    """Given a plain commit, then the payload allows the backfill it may start."""
+    clear_registry()
+
+    result = runner.invoke(app, ["commit", "-m", "tests.fixtures.sample_features", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["backfill"] is True
+
+
+def test_commit_no_backfill_disallows_one_in_the_payload():
+    """Given --no-backfill, then the payload tells the control plane to refuse
+    a commit that would backfill."""
+    clear_registry()
+
+    result = runner.invoke(
+        app, ["commit", "-m", "tests.fixtures.sample_features", "--dry-run", "--no-backfill"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["backfill"] is False
+
+
+def _posting(response: httpx.Response):
+    """Patch httpx.post to return `response` for every attempt, proto or JSON."""
+    return patch("httpx.post", return_value=response)
+
+
+def test_commit_reports_the_backfills_it_started():
+    """Given a commit that starts a backfill, then the CLI says so.
+
+    A commit starts backfills on its own, and one can be a large job. Finding
+    out later in `thyme status` is the surprise this line prevents.
+    """
+    clear_registry()
+    response = httpx.Response(
+        200,
+        json={
+            "commit_id": "c-1",
+            "backfills_created": 1,
+            "backfills": [{"job_name": "count_orders_job", "mode": "replay"}],
+        },
+        request=httpx.Request("POST", "http://localhost:8080/api/v1/commit"),
+    )
+
+    with _posting(response):
+        result = runner.invoke(app, ["commit", "-m", "tests.fixtures.sample_features"])
+
+    assert result.exit_code == 0, result.output
+    assert "Backfilling count_orders_job (replay)" in result.output
+
+
+def test_commit_no_backfill_surfaces_the_refusal_and_the_jobs():
+    """Given --no-backfill and a commit that would backfill, then the CLI exits
+    1 and names the jobs, so the author knows what to change."""
+    clear_registry()
+    response = httpx.Response(
+        409,
+        text=(
+            "this commit would backfill 1 job(s): count_orders_job. It was sent with "
+            "backfill disallowed, so nothing was stored."
+        ),
+        request=httpx.Request("POST", "http://localhost:8080/api/v1/commit"),
+    )
+
+    with _posting(response):
+        result = runner.invoke(
+            app, ["commit", "-m", "tests.fixtures.sample_features", "--no-backfill"]
+        )
+
+    assert result.exit_code == 1
+    assert "409" in result.output
+    assert "count_orders_job" in result.output
+    assert "nothing was stored" in result.output

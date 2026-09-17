@@ -1,5 +1,7 @@
 import inspect
 import textwrap
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from thyme.expr import Expr, PredicateExpr
@@ -447,12 +449,81 @@ class Pipeline:
         return []
 
 
-def pipeline(version: int = 1):
-    """Decorator for pipeline methods on a dataset class."""
+@dataclass(frozen=True)
+class Backfill:
+    """How much history a new pipeline computes when it is first committed.
+
+    Committing a pipeline over a dataset that already has history computes that
+    history — you do not ask for it separately. This says how far back to go.
+
+    `since` is an absolute, timezone-aware datetime, deliberately. A relative
+    window ("the last 90 days") would make the same file mean something
+    different on every commit, so the same definition would produce different
+    feature values depending on when it was deployed. That is the opposite of
+    what a backfill is for.
+
+    The depth is still bounded by what the dataset's topic retains
+    (`@dataset(retention=...)`). A `since` earlier than the topic reaches back
+    gets what the topic holds, not an error — the commit response says how far
+    it actually got.
+
+    Examples:
+        @pipeline(version=1)                                    # all retained history
+        @pipeline(version=1, backfill=Backfill(since=JAN_1))    # from a date
+        @pipeline(version=1, backfill=None)                     # none; start live
+    """
+
+    since: Optional[datetime] = None
+
+    def __post_init__(self) -> None:
+        if self.since is None:
+            return
+        if not isinstance(self.since, datetime):
+            raise TypeError(
+                f"Backfill(since=...) takes a datetime, not {type(self.since).__name__}. "
+                "A duration string is not accepted on purpose: a relative window "
+                "makes the same definition mean something different on every commit."
+            )
+        if self.since.tzinfo is None:
+            raise ValueError(
+                "Backfill(since=...) must be timezone-aware. A naive datetime is "
+                "read differently by the machine committing and the engine "
+                "replaying, which silently moves the window. "
+                "Use datetime(..., tzinfo=timezone.utc)."
+            )
+
+    def to_wire(self) -> dict:
+        """The wire form. `enabled` is explicit rather than encoded as a null,
+        so an older SDK that sends no `backfill` key at all is unambiguous: an
+        absent key means the default, not "do not backfill"."""
+        return {
+            "enabled": True,
+            "since": self.since.isoformat().replace("+00:00", "Z") if self.since else None,
+        }
+
+    @staticmethod
+    def disabled_wire() -> dict:
+        return {"enabled": False, "since": None}
+
+
+# Distinguishes "the author said nothing" from "the author said None". The
+# first backfills everything the topic retains; the second backfills nothing.
+_BACKFILL_UNSET = Backfill()
+
+
+def pipeline(version: int = 1, backfill: Optional[Backfill] = _BACKFILL_UNSET):
+    """Decorator for pipeline methods on a dataset class.
+
+    `backfill` says how much history this pipeline computes when it is first
+    committed over a dataset that already has some. The default computes
+    everything the input topic retains. Pass `None` to compute nothing and
+    start from live traffic only. See [`Backfill`][thyme.pipeline.Backfill].
+    """
 
     def wrapper(func: Callable) -> Callable:
         func._is_pipeline = True
         func._pipeline_version = version
+        func._pipeline_backfill = backfill
         return func
 
     return wrapper
