@@ -21,6 +21,10 @@ from dataclasses import dataclass, field
 #: Catalog types this reader can attach. Mirrors the sink's `loadCatalog`.
 CATALOG_TYPES = ("rest", "glue", "sql")
 
+#: The local REST catalog CI stands up. Endpoint kinds only: on ``glue`` the
+#: URI is the AWS account id, and a URL there is rejected by Glue (TH-370).
+REST_DEFAULT_URI = "http://localhost:8181"
+
 
 def _env(name: str, default: str = "") -> str:
     value = os.environ.get(name)
@@ -67,8 +71,11 @@ class CatalogConfig:
     #: — a qualified name missing the alias resolves against DuckDB's own
     #: schemas and fails with "schema does not exist".
     alias: str = "ice"
-    #: REST endpoint, or the AWS account id when ``type`` is ``glue``.
-    uri: str = "http://localhost:8181"
+    #: REST endpoint, or the AWS account id when ``type`` is ``glue``. Empty
+    #: resolves to :data:`REST_DEFAULT_URI` for the endpoint kinds and is an
+    #: error on ``glue``: the sink only ever hands Glue a region, and the Rust
+    #: reader stopped sending it the REST default in thyme@2ab6e01 (TH-370).
+    uri: str = ""
     #: Iceberg namespace holding one table per entity type.
     database: str = "thyme"
     region: str = "us-east-1"
@@ -106,9 +113,10 @@ class CatalogConfig:
 
     @classmethod
     def from_env(cls) -> CatalogConfig:
+        kind = _env("THYME_ICEBERG_CATALOG", "rest")
         return cls(
-            type=_env("THYME_ICEBERG_CATALOG", "rest"),
-            uri=_env("THYME_ICEBERG_URI", "http://localhost:8181"),
+            type=kind,
+            uri=_env("THYME_ICEBERG_URI", "" if kind == "glue" else REST_DEFAULT_URI),
             database=_env("THYME_ICEBERG_DATABASE", "thyme"),
             warehouse=_env("ICEBERG_WAREHOUSE"),
             authorization_type=_env("THYME_ICEBERG_AUTH", "none"),
@@ -190,6 +198,11 @@ def attach_sql(config: CatalogConfig, alias: str | None = None) -> list[str]:
         )
 
     if config.type == "glue":
+        if not config.uri:
+            raise ValueError(
+                "Glue catalog has no account id. Set THYME_ICEBERG_URI to the "
+                "AWS account id that owns the Glue catalog."
+            )
         # Verified against AWS on 2026-08-09: DuckDB 1.5.5 attaches with the
         # account id and takes its endpoint from the AWS SDK, so only the region
         # matters — the same asymmetry the sink's `loadCatalog` documents.
@@ -209,9 +222,10 @@ def attach_sql(config: CatalogConfig, alias: str | None = None) -> list[str]:
         # configurable rather than pinned to `none` so a deployment behind OAuth2
         # is still reachable.
         warehouse = config.warehouse or config.database
+        uri = config.uri or REST_DEFAULT_URI
         stmts.append(
             f"ATTACH '{_escape(warehouse)}' AS {alias} "
-            f"(TYPE iceberg, ENDPOINT '{_escape(config.uri)}'"
+            f"(TYPE iceberg, ENDPOINT '{_escape(uri)}'"
             f", AUTHORIZATION_TYPE '{_escape(config.authorization_type)}')"
         )
 

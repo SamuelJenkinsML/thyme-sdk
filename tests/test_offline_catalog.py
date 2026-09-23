@@ -36,6 +36,34 @@ class TestCatalogConfig:
         assert cfg.uri == "http://localhost:8181"
         assert cfg.database == "thyme"
 
+    def test_the_rest_default_uri_is_not_applied_to_glue(self, monkeypatch):
+        # given the demo cluster's documented shape: the catalog kind set, the
+        # URI left unset
+        monkeypatch.setenv("THYME_ICEBERG_CATALOG", "glue")
+        monkeypatch.delenv("THYME_ICEBERG_URI", raising=False)
+
+        # when resolved
+        cfg = CatalogConfig.from_env()
+
+        # then no REST endpoint is carried into a Glue attach, where the value
+        # is the AWS account id and Glue rejects a URL (TH-370). The Rust reader
+        # was fixed the same way in thyme@2ab6e01.
+        assert cfg.uri == ""
+
+    @pytest.mark.parametrize("kind", ["rest", "sql"])
+    def test_the_rest_default_uri_applies_to_the_endpoint_kinds(
+        self, kind, monkeypatch
+    ):
+        # given a REST-shaped catalog with the URI left unset
+        monkeypatch.setenv("THYME_ICEBERG_CATALOG", kind)
+        monkeypatch.delenv("THYME_ICEBERG_URI", raising=False)
+
+        # when resolved
+        cfg = CatalogConfig.from_env()
+
+        # then the local catalog is the default, as the sink defaults it
+        assert cfg.uri == "http://localhost:8181"
+
     def test_env_overrides_each_setting(self, monkeypatch):
         # given a deployed environment
         monkeypatch.setenv("THYME_ICEBERG_CATALOG", "glue")
@@ -100,6 +128,34 @@ class TestAttachSql:
         # then it uses the Glue endpoint type, verified working on AWS 2026-08-09
         assert "ENDPOINT_TYPE 'glue'" in stmts
         assert "725740881666" in stmts
+
+    def test_glue_with_no_account_id_names_the_missing_input(self, monkeypatch):
+        # given THYME_ICEBERG_CATALOG=glue and THYME_ICEBERG_URI unset
+        monkeypatch.setenv("THYME_ICEBERG_CATALOG", "glue")
+        monkeypatch.delenv("THYME_ICEBERG_URI", raising=False)
+        cfg = CatalogConfig.from_env()
+
+        # when building the attach, then the error says what to set, instead
+        # of Glue's "Catalog id is invalid" about a localhost URL (TH-370)
+        with pytest.raises(ValueError, match="THYME_ICEBERG_URI") as excinfo:
+            attach_sql(cfg)
+        assert "account id" in str(excinfo.value)
+        assert "localhost:8181" not in str(excinfo.value)
+
+    def test_a_hand_built_glue_config_needs_an_account_id_too(self):
+        # given a config built in code rather than from the environment
+        cfg = CatalogConfig(type="glue")
+
+        # then the dataclass default is not a REST endpoint either
+        with pytest.raises(ValueError, match="account id"):
+            attach_sql(cfg)
+
+    def test_rest_with_no_uri_attaches_the_local_catalog(self):
+        # given a REST config with the URI left at its default
+        stmts = "\n".join(attach_sql(CatalogConfig(type="rest")))
+
+        # then it points at the local catalog CI stands up
+        assert "ENDPOINT 'http://localhost:8181'" in stmts
 
     def test_rest_attaches_by_uri(self):
         # given the local/CI catalog
