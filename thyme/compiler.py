@@ -356,6 +356,7 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
         every=src_meta.get("every", ""),
         max_lateness=src_meta.get("max_lateness", ""),
         cdc=src_meta.get("cdc", "append"),
+        partition_key=src_meta.get("partition_key", ""),
         metadata=_make_metadata(src_meta.get("metadata")),
     )
     config = src_meta.get("config", {})

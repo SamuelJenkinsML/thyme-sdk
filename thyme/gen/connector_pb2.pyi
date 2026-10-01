@@ -142,13 +142,14 @@ class BigQuerySource(_message.Message):
     def __init__(self, project_id: _Optional[str] = ..., dataset_id: _Optional[str] = ..., table: _Optional[str] = ..., credentials_json: _Optional[_Union[SecretRef, _Mapping]] = ...) -> None: ...
 
 class Source(_message.Message):
-    __slots__ = ("dataset", "cursor", "every", "max_lateness", "cdc", "metadata", "iceberg", "postgres", "s3json", "kafka", "kinesis", "snowflake", "bigquery")
+    __slots__ = ("dataset", "cursor", "every", "max_lateness", "cdc", "metadata", "partition_key", "iceberg", "postgres", "s3json", "kafka", "kinesis", "snowflake", "bigquery")
     DATASET_FIELD_NUMBER: _ClassVar[int]
     CURSOR_FIELD_NUMBER: _ClassVar[int]
     EVERY_FIELD_NUMBER: _ClassVar[int]
     MAX_LATENESS_FIELD_NUMBER: _ClassVar[int]
     CDC_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
+    PARTITION_KEY_FIELD_NUMBER: _ClassVar[int]
     ICEBERG_FIELD_NUMBER: _ClassVar[int]
     POSTGRES_FIELD_NUMBER: _ClassVar[int]
     S3JSON_FIELD_NUMBER: _ClassVar[int]
@@ -162,6 +163,7 @@ class Source(_message.Message):
     max_lateness: str
     cdc: str
     metadata: _metadata_pb2.EntityMetadata
+    partition_key: str
     iceberg: IcebergSource
     postgres: PostgresSource
     s3json: S3JsonSource
@@ -169,4 +171,4 @@ class Source(_message.Message):
     kinesis: KinesisSource
     snowflake: SnowflakeSource
     bigquery: BigQuerySource
-    def __init__(self, dataset: _Optional[str] = ..., cursor: _Optional[str] = ..., every: _Optional[str] = ..., max_lateness: _Optional[str] = ..., cdc: _Optional[str] = ..., metadata: _Optional[_Union[_metadata_pb2.EntityMetadata, _Mapping]] = ..., iceberg: _Optional[_Union[IcebergSource, _Mapping]] = ..., postgres: _Optional[_Union[PostgresSource, _Mapping]] = ..., s3json: _Optional[_Union[S3JsonSource, _Mapping]] = ..., kafka: _Optional[_Union[KafkaSource, _Mapping]] = ..., kinesis: _Optional[_Union[KinesisSource, _Mapping]] = ..., snowflake: _Optional[_Union[SnowflakeSource, _Mapping]] = ..., bigquery: _Optional[_Union[BigQuerySource, _Mapping]] = ...) -> None: ...
+    def __init__(self, dataset: _Optional[str] = ..., cursor: _Optional[str] = ..., every: _Optional[str] = ..., max_lateness: _Optional[str] = ..., cdc: _Optional[str] = ..., metadata: _Optional[_Union[_metadata_pb2.EntityMetadata, _Mapping]] = ..., partition_key: _Optional[str] = ..., iceberg: _Optional[_Union[IcebergSource, _Mapping]] = ..., postgres: _Optional[_Union[PostgresSource, _Mapping]] = ..., s3json: _Optional[_Union[S3JsonSource, _Mapping]] = ..., kafka: _Optional[_Union[KafkaSource, _Mapping]] = ..., kinesis: _Optional[_Union[KinesisSource, _Mapping]] = ..., snowflake: _Optional[_Union[SnowflakeSource, _Mapping]] = ..., bigquery: _Optional[_Union[BigQuerySource, _Mapping]] = ...) -> None: ...
