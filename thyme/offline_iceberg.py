@@ -253,15 +253,17 @@ def build_asof_sql(
 WITH bounds AS (
     SELECT
         MAX({s_ts}) AS max_ts,
-        MIN({s_ts})::TIMESTAMP AS min_event_time,
-        MAX({s_ts})::TIMESTAMP + INTERVAL '{_PRUNE_MARGIN}' AS max_event_time
+        MIN({s_ts})::TIMESTAMPTZ AS min_event_time,
+        MAX({s_ts})::TIMESTAMPTZ + INTERVAL '{_PRUNE_MARGIN}' AS max_event_time
     FROM {spine}
 ),
 history AS (
     -- Pruning is on event_time, the partition column (`days(event_time)`): a
     -- predicate on the `ts` string cannot prune partitions, and pruning is what
     -- makes this scan cheap. The margin on the upper bound is load-bearing --
-    -- see _PRUNE_MARGIN.
+    -- see _PRUNE_MARGIN. The bounds are TIMESTAMPTZ because the column is:
+    -- a naive cast reads the spine's "...Z" in the session's zone, and east
+    -- of UTC that prunes away the newest rows and resolves to a stale one.
     --
     -- The bounds arrive as scalar subqueries, not as a comma join against
     -- `bounds`. That looks equivalent -- bounds is one row -- but an inequality

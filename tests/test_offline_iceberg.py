@@ -217,13 +217,15 @@ class TestAsOfSemanticsMatchRocksDB:
     @pytest.fixture
     def con(self):
         con = duckdb.connect()
+        # `event_time` is TIMESTAMPTZ, as the sink writes it: a naive column
+        # here would hide a bound that is cast without a zone.
         con.execute(
             "CREATE TABLE hist(entity_id VARCHAR, ts VARCHAR, "
-            "event_time TIMESTAMP, f DOUBLE)"
+            "event_time TIMESTAMPTZ, f DOUBLE)"
         )
         con.executemany(
-            "INSERT INTO hist VALUES (?, ?, ?, ?)",
-            [(e, ts, self._event_time(ts), v) for e, ts, v in self.HISTORY],
+            "INSERT INTO hist VALUES (?, ?, ?::TIMESTAMPTZ, ?)",
+            [(e, ts, ts, v) for e, ts, v in self.HISTORY],
         )
         con.execute("CREATE TABLE spine(entity_id VARCHAR, timestamp VARCHAR)")
         con.executemany("INSERT INTO spine VALUES (?, ?)", self.SPINE)
@@ -280,7 +282,7 @@ class TestAsOfSemanticsMatchRocksDB:
         )
         con.execute(
             "INSERT INTO hist VALUES ('c123', '2026-08-04T11:00:00.5Z', "
-            "'2026-08-04 11:00:00.5', 42.0)"
+            "'2026-08-04T11:00:00.5Z'::TIMESTAMPTZ, 42.0)"
         )
 
         # when resolved
@@ -297,6 +299,28 @@ class TestAsOfSemanticsMatchRocksDB:
         # answer byte-wise -- pruning on event_time without a margin would have
         # dropped it and silently returned the older row
         assert rows[0][-1] == 42.0
+
+    def test_the_newest_row_resolves_whatever_the_session_time_zone(self, con):
+        # given a session whose zone is east of UTC: a bound cast without a
+        # zone reads the spine's "14:35:02Z" as 14:35:02 local, nine hours
+        # before the instant the Z names, and prunes every newer row away
+        con.execute("SET TimeZone = 'Asia/Tokyo'")
+        con.execute("DELETE FROM spine")
+        con.execute("INSERT INTO spine VALUES ('c123', '2026-08-04T10:00:01Z')")
+
+        # when resolved
+        sql = build_asof_sql(
+            table="hist",
+            feature_columns=["f"],
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+            spine_relation="spine",
+        )
+        rows = con.execute(sql).fetchall()
+
+        # then the row one second before the target is the answer, not the
+        # newest row that survived the mis-zoned prune
+        assert rows == [("c123", "2026-08-04T10:00:01Z", 4.0)]
 
     def test_ordering_is_byte_wise_not_chronological(self, con):
         # given two timestamps whose byte order and time order disagree
