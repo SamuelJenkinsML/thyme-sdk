@@ -118,6 +118,36 @@ class TestKinesisEnvDefaults:
         with pytest.raises(ValueError, match="requires 'stream_arn'"):
             KinesisSource(stream_arn="")
 
+    def test_an_unset_region_role_and_endpoint_are_omitted(self, monkeypatch):
+        # Given no kwargs and no THYME_KINESIS_* env vars
+        for var in ("REGION", "ROLE_ARN", "ENDPOINT_URL"):
+            monkeypatch.delenv(f"THYME_KINESIS_{var}", raising=False)
+
+        # When
+        config = KinesisSource(stream_arn="arn:aws:kinesis:eu-west-2:123:stream/s").to_dict()["config"]
+
+        # Then the commit carries no guess: the engine reads its own region and
+        # credentials, which are the ones that apply where the stream is read
+        assert config == {
+            "stream_arn": "arn:aws:kinesis:eu-west-2:123:stream/s",
+            "init_position": "latest",
+            "format": "json",
+        }
+
+    def test_role_arn_from_env_is_still_sent(self, monkeypatch):
+        monkeypatch.setenv("THYME_KINESIS_ROLE_ARN", "arn:aws:iam::123:role/reader")
+        src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123:stream/s")
+        assert src.to_dict()["config"]["role_arn"] == {
+            "kind": "literal",
+            "value": "arn:aws:iam::123:role/reader",
+        }
+
+    def test_an_unset_region_compiles_to_empty_not_us_east_1(self, monkeypatch):
+        monkeypatch.delenv("THYME_KINESIS_REGION", raising=False)
+        meta = KinesisSource(stream_arn="arn:aws:kinesis:eu-west-2:123:stream/s").to_dict()
+        proto = compile_source({**meta, "dataset": "Clicks"})
+        assert proto.kinesis.region == ""
+
     def test_init_position_no_env_fallback(self, monkeypatch):
         # init_position is per-stream semantics, not infra. No env fallback.
         monkeypatch.setenv("THYME_KINESIS_INIT_POSITION", "trim_horizon")
