@@ -450,8 +450,8 @@ def test_compile_source_kinesis_defaults():
     # When: compiling to proto
     proto = compile_source(src_meta)
 
-    # Then: defaults are applied
-    assert proto.kinesis.region == "us-east-1"
+    # Then: per-stream defaults are applied, and the region is left to the engine
+    assert proto.kinesis.region == ""
     assert proto.kinesis.init_position == "latest"
     assert proto.kinesis.format == "json"
     assert proto.kinesis.role_arn.value == ""

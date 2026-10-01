@@ -235,8 +235,13 @@ class KinesisSource:
     """Configuration for an AWS Kinesis stream source.
 
     Per-dataset (required): stream_arn. Per-stream semantics: init_position, format.
-    Env-defaulted (THYME_KINESIS_*): region, endpoint_url.
+    Env-defaulted (THYME_KINESIS_*): region, role_arn, endpoint_url.
     Secret-capable: role_arn.
+
+    Anything left unset, by kwarg and by env var, is omitted from the commit.
+    The engine then uses its own AWS region and credentials, which are the ones
+    that apply where the stream is read; a default resolved here would be the
+    committing machine's guess.
     """
 
     connector_type: ClassVar[str] = "kinesis"
@@ -270,8 +275,10 @@ class KinesisSource:
                 f"Invalid format '{format}'. "
                 f"Must be one of {sorted(self._VALID_FORMATS)}."
             )
-        self.role_arn: str | Secret = role_arn if role_arn is not None else env_default("kinesis", "role_arn", default="")
-        self.region = region or env_default("kinesis", "region", default="us-east-1")
+        self.role_arn: str | Secret | None = (
+            role_arn if role_arn is not None else env_default("kinesis", "role_arn", default=None)
+        )
+        self.region = region or env_default("kinesis", "region", default=None)
         self.init_position = init_position
         self.format = format
         self.endpoint_url = endpoint_url if endpoint_url is not None else env_default("kinesis", "endpoint_url", default=None)
@@ -279,11 +286,15 @@ class KinesisSource:
     def to_dict(self) -> dict:
         config: dict[str, Any] = {
             "stream_arn": self.stream_arn,
-            "role_arn": _credential_dict(self.role_arn),
-            "region": self.region,
             "init_position": self.init_position,
             "format": self.format,
         }
+        # Unset stays absent, so the engine uses its own region and credentials
+        # rather than a guess frozen on the committing machine.
+        if self.role_arn:
+            config["role_arn"] = _credential_dict(self.role_arn)
+        if self.region:
+            config["region"] = self.region
         if self.endpoint_url:
             config["endpoint_url"] = self.endpoint_url
         return {"connector_type": self.connector_type, "config": config}

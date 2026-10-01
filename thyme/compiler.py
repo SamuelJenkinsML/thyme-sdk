@@ -409,7 +409,7 @@ def compile_source(src_meta: dict) -> connector_pb2.Source:
         source.kinesis.CopyFrom(connector_pb2.KinesisSource(
             stream_arn=config.get("stream_arn", ""),
             role_arn=_make_secret_ref(config.get("role_arn", "")),
-            region=config.get("region", "us-east-1"),
+            region=config.get("region", ""),
             init_position=config.get("init_position", "latest"),
             format=config.get("format", "json"),
             endpoint_url=config.get("endpoint_url", ""),

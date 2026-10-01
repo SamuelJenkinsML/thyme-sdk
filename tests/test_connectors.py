@@ -585,15 +585,16 @@ def test_kinesis_source_to_dict_config_fields():
     assert cfg["format"] == "json"
 
 
-def test_kinesis_source_default_region_is_us_east_1():
-    # Given: a KinesisSource without explicit region
+def test_kinesis_source_unset_region_is_omitted(monkeypatch):
+    # Given: a KinesisSource without explicit region, and no THYME_KINESIS_REGION
+    monkeypatch.delenv("THYME_KINESIS_REGION", raising=False)
     src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123:stream/s")
 
     # When: calling to_dict
     d = src.to_dict()
 
-    # Then: region defaults to "us-east-1"
-    assert d["config"]["region"] == "us-east-1"
+    # Then: the engine's own region applies
+    assert "region" not in d["config"]
 
 
 def test_kinesis_source_default_init_position_is_latest():
@@ -618,15 +619,16 @@ def test_kinesis_source_default_format_is_json():
     assert d["config"]["format"] == "json"
 
 
-def test_kinesis_source_default_role_arn_is_empty():
-    # Given: a KinesisSource without explicit role_arn
+def test_kinesis_source_unset_role_arn_is_omitted(monkeypatch):
+    # Given: a KinesisSource without explicit role_arn, and no THYME_KINESIS_ROLE_ARN
+    monkeypatch.delenv("THYME_KINESIS_ROLE_ARN", raising=False)
     src = KinesisSource(stream_arn="arn:aws:kinesis:us-east-1:123:stream/s")
 
     # When: calling to_dict
     d = src.to_dict()
 
-    # Then: role_arn defaults to an empty literal SecretRef
-    assert d["config"]["role_arn"] == {"kind": "literal", "value": ""}
+    # Then: the engine's own credentials apply
+    assert "role_arn" not in d["config"]
 
 
 def test_kinesis_source_init_position_trim_horizon():
