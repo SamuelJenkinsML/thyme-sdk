@@ -406,6 +406,7 @@ def source(
     every: str = "",
     max_lateness: str = "",
     cdc: str = "append",
+    partition_key: str | None = None,
     **kwargs,
 ) -> Callable:
     """Decorator to attach a source connector to a dataset class.
@@ -417,6 +418,12 @@ def source(
         max_lateness: Maximum expected out-of-order delay (e.g. "1h", "1d").
             Events arriving later than (max_event_time - max_lateness) are
             discarded. This sets the watermark for all downstream pipelines.
+        partition_key: The field, or dotted path into a nested object, that
+            decides each record's partition. Defaults to the dataset key. Set
+            it to the field your pipelines group by, e.g.
+            ``"visitor_data.visitor_id"`` for a pipeline that groups by
+            ``col("visitor_data").json_extract("visitor_id")``, so every event
+            for one entity is aggregated on one partition.
 
     Catalog metadata kwargs (`description`, `owner`, `tags`, `project`,
     `deprecated`, `deprecation_reason`, `replacement`) are stashed on the
@@ -435,6 +442,14 @@ def source(
     if cdc not in _VALID_CDC_MODES:
         raise ValueError(
             f"Invalid cdc mode '{cdc}'. Must be one of {sorted(_VALID_CDC_MODES)}."
+        )
+
+    if partition_key is not None and (
+        not isinstance(partition_key, str) or "" in partition_key.split(".")
+    ):
+        raise ValueError(
+            f"Invalid partition_key {partition_key!r}. Give a field name or a "
+            f"dotted path such as 'visitor_data.visitor_id'."
         )
 
     if connector.is_streaming:
@@ -456,6 +471,8 @@ def source(
         source_meta["every"] = every
         source_meta["max_lateness"] = max_lateness
         source_meta["cdc"] = cdc
+        if partition_key is not None:
+            source_meta["partition_key"] = partition_key
         source_meta["metadata"] = asdict(metadata)
         _SOURCE_REGISTRY[cls.__name__] = source_meta
         cls._source_meta = source_meta
