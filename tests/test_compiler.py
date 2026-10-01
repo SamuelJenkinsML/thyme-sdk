@@ -321,6 +321,34 @@ def test_compile_source_cdc_field_included():
     assert proto.cdc == "upsert"
 
 
+def test_compile_source_carries_the_partition_key():
+    # Given a stream partitioned by a nested visitor id
+    src_meta = {
+        "dataset": "ViatorEvent",
+        "connector_type": "iceberg",
+        "config": {"catalog": "local", "database": "db", "table": "events"},
+        "partition_key": "visitor_data.visitor_id",
+    }
+
+    # When
+    proto = compile_source(src_meta)
+
+    # Then
+    assert proto.partition_key == "visitor_data.visitor_id"
+
+
+def test_compile_source_leaves_an_unset_partition_key_empty():
+    # Given a source with no partition key, which the engine reads as the dataset key
+    src_meta = {
+        "dataset": "Review",
+        "connector_type": "iceberg",
+        "config": {"catalog": "local", "database": "db", "table": "reviews"},
+    }
+
+    # When / then
+    assert compile_source(src_meta).partition_key == ""
+
+
 def test_compile_source_cdc_defaults_to_append():
     src_meta = {
         "dataset": "Review",
