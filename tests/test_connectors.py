@@ -133,6 +133,42 @@ def test_source_invalid_cdc_raises_value_error():
             pass
 
 
+def test_source_partition_key_is_stored():
+    # Given a stream whose entity sits one object down
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    # When
+    @source(src, partition_key="visitor_data.visitor_id")
+    class ViatorEvent:
+        pass
+
+    # Then
+    assert get_registered_sources()["ViatorEvent"]["partition_key"] == "visitor_data.visitor_id"
+
+
+def test_source_partition_key_is_absent_when_unset():
+    # Given a source with no partition key
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    # When
+    @source(src, cursor="ts")
+    class Review:
+        pass
+
+    # Then the commit leaves it out and the server uses the dataset key
+    assert "partition_key" not in get_registered_sources()["Review"]
+
+
+@pytest.mark.parametrize("bad", ["", ".visitor_id", "visitor_data.", "visitor_data..visitor_id"])
+def test_source_partition_key_with_an_empty_segment_raises(bad):
+    src = IcebergSource(catalog="c", database="d", table="t")
+
+    with pytest.raises(ValueError, match="partition_key"):
+        @source(src, partition_key=bad)
+        class ViatorEvent:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Catalog metadata kwargs (TH-CAT-A1)
 # ---------------------------------------------------------------------------
