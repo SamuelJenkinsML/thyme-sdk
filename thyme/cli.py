@@ -244,7 +244,7 @@ def _report_started_backfills(response: httpx.Response) -> None:
     except ValueError:
         return
     for b in started:
-        typer.echo(f"Backfilling {b['job_name']} ({b['mode']}) — watch it with: thyme backfill --list")
+        typer.echo(f"Backfilling {b['job_name']} — watch it with: thyme backfill --list")
 
 
 def _check_health(url: str, headers: dict[str, str] | None = None) -> bool:
@@ -257,15 +257,7 @@ def _check_health(url: str, headers: dict[str, str] | None = None) -> bool:
 
 
 def _backfill_progress(row: dict) -> str:
-    """How far a backfill has got, in the terms its own kind measures.
-
-    A re-poll counts records as it re-reads the source. A replay counts
-    partitions handed over to live processing and never touches
-    `records_ingested`, so reporting records for one shows "0" from start to
-    finish and reads as "nothing happened".
-    """
-    if row.get("mode") == "repoll":
-        return f"{row.get('records_ingested', 0)} records"
+    """How far a backfill has got: the partitions handed over to live processing."""
     done = len(row.get("completed_partitions") or [])
     total = row.get("partition_count")
     return f"{done}/{total} partitions" if total is not None else f"{done} partitions"
@@ -372,14 +364,12 @@ def status(
         t = Table(title="Backfills")
         t.add_column("Job")
         t.add_column("Source")
-        t.add_column("Mode")
         t.add_column("Status")
         t.add_column("Progress")
         for b in data["backfills"]:
             t.add_row(
                 b["job_name"],
                 b["source_dataset"],
-                b.get("mode", ""),
                 b["status"],
                 _backfill_progress(b),
             )
@@ -1164,7 +1154,6 @@ def _as_api_base(url: str) -> str:
 def backfill(
     job_name: Optional[str] = typer.Argument(None, help="Job to backfill, e.g. 'count_orders_job'"),
     list_only: bool = typer.Option(False, "--list", help="List backfills instead of starting one"),
-    mode: str = typer.Option("replay", "--mode", help="replay (default) or repoll"),
     from_: Optional[str] = typer.Option(
         None, "--from", help="First event time to emit rows for (ISO-8601). Earlier events only build state."
     ),
@@ -1180,9 +1169,10 @@ def backfill(
 ) -> None:
     """Backfill a job's history, or list the backfills that have run.
 
-    Committing a new pipeline over a dataset that already has history asks for
-    its backfill on its own. Use this command to run one again, to start one at
-    a chosen date, or to reach for history the topic no longer holds.
+    A backfill replays the job's input topic. Committing a new pipeline over a
+    dataset that already has history asks for its backfill on its own. Use this
+    command to run one again, or from a chosen date. For history the topic no
+    longer holds, bump the source dataset's version: that re-reads the source.
     """
     config = _resolve_config()
     if api_url:
@@ -1200,10 +1190,6 @@ def backfill(
             typer.echo("Error: give a job name, or use --list.", err=True)
             raise typer.Exit(1)
 
-        if mode not in ("replay", "repoll"):
-            typer.echo(f"Error: unknown --mode '{mode}'. Use 'replay' or 'repoll'.", err=True)
-            raise typer.Exit(1)
-
         # A reset deletes the job's state and rebuilds it from the topic. If the
         # topic no longer reaches as far back as the state does, the rebuilt
         # history is shorter than the one it replaced, and nothing puts the old
@@ -1218,7 +1204,7 @@ def backfill(
                 raise typer.Exit(1)
 
         try:
-            started = client.backfill(job_name, mode=mode, target_start=from_, reset=reset)
+            started = client.backfill(job_name, target_start=from_, reset=reset)
         except HTTPStatusError as exc:
             typer.echo(f"Error: {exc.response.status_code} {exc.response.text.strip()}", err=True)
             raise typer.Exit(1)
@@ -1227,7 +1213,7 @@ def backfill(
         if json_output and not wait:
             typer.echo(json.dumps(started, indent=2))
         else:
-            typer.echo(f"Started a {started['mode']} backfill for {job_name} ({backfill_id}).")
+            typer.echo(f"Started a backfill for {job_name} ({backfill_id}).")
 
         if not wait:
             if not json_output:
@@ -1268,14 +1254,13 @@ def _print_backfills(rows: list[dict], json_output: bool) -> None:
         typer.echo("No backfills.")
         return
     table = Table(title="Backfills")
-    for column in ("Job", "Mode", "Status", "Partitions", "Reset", "Started", "Finished"):
+    for column in ("Job", "Status", "Partitions", "Reset", "Started", "Finished"):
         table.add_column(column)
     for row in rows:
         done = row.get("completed_partitions") or []
         total = row.get("partition_count")
         table.add_row(
             row.get("job_name", ""),
-            row.get("mode", ""),
             row.get("status", ""),
             f"{len(done)}/{total}" if total is not None else str(len(done)),
             "yes" if row.get("reset") else "",
