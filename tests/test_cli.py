@@ -899,11 +899,11 @@ def test_as_api_base_strips_the_commit_endpoint():
     assert _as_api_base("http://alb.example") == "http://alb.example"
 
 
-def test_status_reports_replay_progress_in_partitions_not_records():
-    """Given a replay backfill, when status runs, then it shows partitions.
+def test_status_reports_backfill_progress_in_partitions():
+    """Given a backfill, when status runs, then it shows partitions.
 
-    A replay never touches `records_ingested`, so a Records column shows 0 from
-    start to finish and reads as "nothing happened".
+    A replay ingests no records; the partitions handed over to live processing
+    are the only progress it has.
     """
     # Given a status endpoint reporting one completed replay
     status = dict(MOCK_STATUS_RESPONSE)
