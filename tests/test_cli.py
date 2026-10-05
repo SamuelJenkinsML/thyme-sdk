@@ -656,13 +656,10 @@ MOCK_BACKFILL_ROWS = [
         "job_name": "count_orders_job",
         "source_dataset": "BfOrder",
         "status": "completed",
-        "mode": "replay",
         "target_start": None,
         "reset": False,
         "completed_partitions": [0, 1, 2, 3],
         "partition_count": 4,
-        "records_ingested": 0,
-        "cursor_value": "",
         "created_at": "2026-09-16T10:00:00+00:00",
         "completed_at": "2026-09-16T10:00:48+00:00",
         "error_message": None,
@@ -672,13 +669,10 @@ MOCK_BACKFILL_ROWS = [
         "job_name": "other_job",
         "source_dataset": "Other",
         "status": "running",
-        "mode": "repoll",
         "target_start": None,
         "reset": False,
         "completed_partitions": [],
         "partition_count": 1,
-        "records_ingested": 12,
-        "cursor_value": "",
         "created_at": "2026-09-16T11:00:00+00:00",
         "completed_at": None,
         "error_message": None,
@@ -693,7 +687,6 @@ def test_backfill_starts_a_replay_by_default():
         mock_backfill.return_value = {
             "backfill_id": "bf-9",
             "job_name": "count_orders_job",
-            "mode": "replay",
             "reset": False,
         }
 
@@ -703,45 +696,47 @@ def test_backfill_starts_a_replay_by_default():
     # Then: a replay was asked for, with no target start and no reset
     assert result.exit_code == 0, result.output
     mock_backfill.assert_called_once_with(
-        "count_orders_job", mode="replay", target_start=None, reset=False
+        "count_orders_job", target_start=None, reset=False
     )
     assert "bf-9" in result.output
 
 
-def test_backfill_passes_the_target_start_and_mode_through():
-    """Given --from and --mode, when backfill runs, then both reach the client."""
+def test_backfill_passes_the_target_start_through():
+    """Given --from, when backfill runs, then it reaches the client."""
     # Given: a control plane that accepts the request
     with patch("thyme.client.ThymeClient.backfill") as mock_backfill:
         mock_backfill.return_value = {
             "backfill_id": "bf-10",
             "job_name": "count_orders_job",
-            "mode": "repoll",
             "reset": False,
         }
 
-        # When: a re-poll from a chosen date is asked for
+        # When: a backfill from a chosen date is asked for
         result = runner.invoke(
-            app,
-            ["backfill", "count_orders_job", "--mode", "repoll", "--from", "2026-06-01T00:00:00Z"],
+            app, ["backfill", "count_orders_job", "--from", "2026-06-01T00:00:00Z"]
         )
 
-    # Then: both are passed on unchanged
+    # Then: it is passed on unchanged
     assert result.exit_code == 0, result.output
     mock_backfill.assert_called_once_with(
-        "count_orders_job", mode="repoll", target_start="2026-06-01T00:00:00Z", reset=False
+        "count_orders_job", target_start="2026-06-01T00:00:00Z", reset=False
     )
 
 
-def test_backfill_rejects_an_unknown_mode_without_calling_the_service():
-    """Given a bad --mode, when backfill runs, then it fails before any request."""
+def test_backfill_has_no_mode_option():
+    """Given --mode, when backfill runs, then it is refused before any request.
+
+    Re-reading a source into the dataset's shared topic counted every record
+    again for every pipeline on it. History deeper than the topic comes from
+    bumping the dataset's version instead.
+    """
     # Given: nothing — the check is local
     with patch("thyme.client.ThymeClient.backfill") as mock_backfill:
-        # When: an unknown mode is given
-        result = runner.invoke(app, ["backfill", "count_orders_job", "--mode", "rewind"])
+        # When: a re-poll is asked for
+        result = runner.invoke(app, ["backfill", "count_orders_job", "--mode", "repoll"])
 
-    # Then: it stops, and the service is never asked
-    assert result.exit_code == 1
-    assert "rewind" in result.output
+    # Then: the option does not exist, and the service is never asked
+    assert result.exit_code != 0
     mock_backfill.assert_not_called()
 
 
@@ -769,7 +764,6 @@ def test_backfill_reset_proceeds_with_yes():
         mock_backfill.return_value = {
             "backfill_id": "bf-11",
             "job_name": "count_orders_job",
-            "mode": "replay",
             "reset": True,
         }
 
@@ -779,7 +773,7 @@ def test_backfill_reset_proceeds_with_yes():
     # Then: the reset was requested
     assert result.exit_code == 0, result.output
     mock_backfill.assert_called_once_with(
-        "count_orders_job", mode="replay", target_start=None, reset=True
+        "count_orders_job", target_start=None, reset=True
     )
 
 
@@ -801,17 +795,15 @@ def test_backfill_list_filters_by_job():
 
 def test_backfill_list_shows_partition_progress():
     """Given --list, when a replay is part-done, then the table shows how far."""
-    # Given: one completed replay and one running re-poll
+    # Given: one completed backfill and one running
     with patch("thyme.client.ThymeClient.list_backfills") as mock_list:
         mock_list.return_value = MOCK_BACKFILL_ROWS
 
         # When: they are listed
         result = runner.invoke(app, ["backfill", "--list"])
 
-    # Then: the mode and the partition progress are both visible
+    # Then: the partition progress is visible
     assert result.exit_code == 0, result.output
-    assert "replay" in result.output
-    assert "repoll" in result.output
     assert "4/4" in result.output
     assert "0/1" in result.output
 
@@ -837,7 +829,6 @@ def test_backfill_wait_polls_until_the_replay_completes():
         mock_backfill.return_value = {
             "backfill_id": "bf-1",
             "job_name": "count_orders_job",
-            "mode": "replay",
             "reset": False,
         }
         mock_wait.return_value = MOCK_BACKFILL_ROWS[0]
@@ -861,7 +852,6 @@ def test_backfill_wait_reports_a_failure_as_an_error():
         mock_backfill.return_value = {
             "backfill_id": "bf-1",
             "job_name": "count_orders_job",
-            "mode": "replay",
             "reset": False,
         }
         mock_wait.side_effect = RuntimeError("Backfill bf-1 failed: the topic was deleted")
@@ -930,36 +920,9 @@ def test_status_reports_replay_progress_in_partitions_not_records():
         # When status runs
         result = runner.invoke(app, ["status"])
 
-    # Then the progress is partitions, and the mode is named
+    # Then the progress is partitions
     assert result.exit_code == 0, result.output
     assert "4/4" in result.output
-    assert "replay" in result.output
-
-
-def test_status_still_reports_repoll_progress_in_records():
-    """Given a re-poll, when status runs, then it shows records.
-
-    A re-poll re-reads the source and counts records as it goes; partitions
-    would say nothing about it.
-    """
-    # Given a status endpoint reporting one running re-poll
-    status = dict(MOCK_STATUS_RESPONSE)
-    status["backfills"] = [MOCK_BACKFILL_ROWS[1]]
-    with patch("httpx.get") as mock_get:
-        def side_effect(url, **kwargs):
-            resp = MagicMock()
-            resp.status_code = 200
-            resp.json.return_value = status if "/api/v1/status" in url else {}
-            resp.raise_for_status.return_value = None
-            return resp
-        mock_get.side_effect = side_effect
-
-        # When status runs
-        result = runner.invoke(app, ["status"])
-
-    # Then the record count is what it reports
-    assert result.exit_code == 0, result.output
-    assert "12 records" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -1007,7 +970,7 @@ def test_commit_reports_the_backfills_it_started():
         json={
             "commit_id": "c-1",
             "backfills_created": 1,
-            "backfills": [{"job_name": "count_orders_job", "mode": "replay"}],
+            "backfills": [{"job_name": "count_orders_job"}],
         },
         request=httpx.Request("POST", "http://localhost:8080/api/v1/commit"),
     )
@@ -1016,7 +979,7 @@ def test_commit_reports_the_backfills_it_started():
         result = runner.invoke(app, ["commit", "-m", "tests.fixtures.sample_features"])
 
     assert result.exit_code == 0, result.output
-    assert "Backfilling count_orders_job (replay)" in result.output
+    assert "Backfilling count_orders_job" in result.output
 
 
 def test_commit_no_backfill_surfaces_the_refusal_and_the_jobs():
