@@ -1072,13 +1072,10 @@ def _backfill_row(**overrides) -> dict:
         "job_name": "count_orders_job",
         "source_dataset": "BfOrder",
         "status": "pending",
-        "mode": "replay",
         "target_start": None,
         "reset": False,
         "completed_partitions": [],
         "partition_count": 4,
-        "records_ingested": 0,
-        "cursor_value": "",
         "created_at": "2026-09-16T10:00:00+00:00",
         "completed_at": None,
         "error_message": None,
@@ -1130,7 +1127,7 @@ def test_backfill_serialises_a_datetime_target_start():
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.update(json.loads(request.content))
-        return httpx.Response(202, json={"backfill_id": "bf-1", "job_name": "j", "mode": "replay", "reset": False})
+        return httpx.Response(202, json={"backfill_id": "bf-1", "job_name": "j", "reset": False})
 
     config = Config(api_key="k", api_base="http://localhost:8080", query_url="http://localhost:8081")
     client = ThymeClient(config=config, _transport=httpx.MockTransport(handler))
