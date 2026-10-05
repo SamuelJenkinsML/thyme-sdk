@@ -1087,8 +1087,12 @@ def _backfill_row(**overrides) -> dict:
     return row
 
 
-def test_backfill_posts_the_job_mode_and_reset():
-    """Given a job, when backfill is called, then the body carries all three."""
+def test_backfill_posts_the_job_and_reset_and_no_mode():
+    """Given a job, when backfill is called, then the body names no mode.
+
+    Every backfill replays the job's input topic; the control plane refuses a
+    request that still names a mode.
+    """
     # Given: a control plane that records what it was sent
     sent: dict = {}
 
@@ -1101,7 +1105,6 @@ def test_backfill_posts_the_job_mode_and_reset():
             json={
                 "backfill_id": "bf-1",
                 "job_name": "count_orders_job",
-                "mode": "replay",
                 "reset": True,
             },
         )
@@ -1113,8 +1116,8 @@ def test_backfill_posts_the_job_mode_and_reset():
     result = client.backfill("count_orders_job", reset=True)
     client.close()
 
-    # Then: the body says which job, which kind, and whether to reset
-    assert sent == {"job_name": "count_orders_job", "mode": "replay", "reset": True}
+    # Then: the body says which job and whether to reset
+    assert sent == {"job_name": "count_orders_job", "reset": True}
     assert result["backfill_id"] == "bf-1"
 
 
