@@ -583,23 +583,19 @@ class ThymeClient:
         self,
         job_name: str,
         *,
-        mode: str = "replay",
         target_start: "datetime | str | None" = None,
         reset: bool = False,
     ) -> dict[str, Any]:
         """Ask the control plane to backfill a job, and return the new row.
 
-        Committing a new pipeline already asks for its own backfill. This is for
-        everything else: running one again, starting one at a chosen date, or
-        reaching for history that the topic no longer holds.
+        A backfill replays the job's input topic in event-time order and
+        re-publishes nothing. Committing a new pipeline already asks for its own
+        backfill. This is for running one again, or from a chosen date. History
+        the topic no longer holds comes from bumping the source dataset's
+        version, which re-reads the source into new storage.
 
         Args:
             job_name: The job to backfill, e.g. ``"count_orders_job"``.
-            mode: ``"replay"`` (the default) replays the job's input topic in
-                event-time order and re-publishes nothing. ``"repoll"`` re-reads
-                the external source and produces into the shared dataset topic,
-                which every other job on that topic then counts again — use it
-                only for history deeper than the topic keeps.
             target_start: First event time whose rows the replay emits. Earlier
                 events still build state. ``None`` emits every row the topic
                 holds.
@@ -609,14 +605,13 @@ class ThymeClient:
                 current state and rebuilds it from the topic.
 
         Returns:
-            The service's response: ``backfill_id``, ``job_name``, ``mode``,
-            ``reset``.
+            The service's response: ``backfill_id``, ``job_name``, ``reset``.
 
         Raises:
             httpx.HTTPStatusError: 404 for an unknown job, 409 when a backfill
                 for it is already pending or running, 400 for a bad combination.
         """
-        body: dict[str, Any] = {"job_name": job_name, "mode": mode, "reset": reset}
+        body: dict[str, Any] = {"job_name": job_name, "reset": reset}
         if target_start is not None:
             body["target_start"] = (
                 target_start
