@@ -79,6 +79,12 @@ _PRUNE_MARGIN = "1 second"
 #: value. Pass ``max_lookback=None`` to opt out and read all history.
 DEFAULT_MAX_LOOKBACK = "90 days"
 
+# The columns the sink writes for an aggregation's share; see
+# offline-sink/internal/decode.
+SHARE_SUM = "__share_sum"
+SHARE_COUNT = "__share_count"
+WINDOWED_TYPES = ("count", "sum", "avg")
+
 
 def _quote_ident(name: str) -> str:
     """Quote a SQL identifier, doubling any embedded quote."""
@@ -111,6 +117,21 @@ def feature_columns_for(featureset_meta: dict) -> list[str]:
     return columns
 
 
+def windowed_columns(dataset: str) -> dict[str, tuple[str, int]]:
+    """`dataset`'s windowed Count, Sum and Avg columns: name -> (type, window seconds)."""
+    from thyme.dataset import _PIPELINE_REGISTRY
+    from thyme.testing._window import parse_window_duration
+
+    return {
+        spec["output_field"]: (spec["type"], parse_window_duration(spec["window"]))
+        for pipeline in _PIPELINE_REGISTRY.values()
+        if pipeline["output_dataset"] == dataset
+        for op in pipeline["operators"]
+        for spec in op.get("aggregate", {}).get("specs", [])
+        if spec["type"] in WINDOWED_TYPES and spec.get("window")
+    }
+
+
 def derived_features(featureset_meta: dict) -> list[str]:
     """Features computed by an extractor rather than read from a table."""
     return [
@@ -129,6 +150,7 @@ def resolve_spine(
     entity_column: str,
     timestamp_column: str,
     max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
+    windows: dict[str, tuple[str, int]] | None = None,
 ) -> Any:
     """Resolve a whole spine against one offline table, returning a relation.
 
@@ -168,6 +190,7 @@ def resolve_spine(
         timestamp_column=timestamp_column,
         spine_relation=spine_relation,
         max_lookback=max_lookback,
+        windows=windows,
     )
     return con.sql(sql)
 
@@ -180,6 +203,7 @@ def build_asof_sql(
     timestamp_column: str,
     spine_relation: str = "spine",
     max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
+    windows: dict[str, tuple[str, int]] | None = None,
 ) -> str:
     """Build the as-of join that resolves an entire spine in one scan.
 
@@ -194,6 +218,9 @@ def build_asof_sql(
         max_lookback: A DuckDB interval bounding how far back history is read.
             Defaults to :data:`DEFAULT_MAX_LOOKBACK`; pass ``None`` for all of
             history. See the note on unbounded scans below.
+        windows: Columns that are windowed Count, Sum or Avg, as
+            :func:`windowed_columns` returns them. Each is added up from the
+            rows' shares at the spine row's own time instead of read.
 
     ## Ordering is on the raw timestamp string
 
@@ -238,8 +265,12 @@ def build_asof_sql(
     h_entity = _quote_ident(ENTITY_ID_COLUMN)
     h_ts = _quote_ident(TS_COLUMN)
 
+    windows = {c: w for c, w in (windows or {}).items() if c in feature_columns}
+    shares = [c for c, _ in _share_columns(windows)]
     # Projected explicitly, never `*` -- see BLOB_COLUMNS.
-    projected = ", ".join(f"h.{_quote_ident(c)}" for c in feature_columns)
+    projected = ", ".join(f"h.{_quote_ident(c)}" for c in feature_columns + shares)
+    if windows:
+        projected += f", h.{_quote_ident(PARTITION_COLUMN)}"
 
     part = _quote_ident(PARTITION_COLUMN)
     lower_bound = ""
@@ -273,10 +304,81 @@ history AS (
     SELECT h.{h_entity}, h.{h_ts}, {projected}
     FROM {tbl} h
     WHERE h.{part} <= (SELECT max_event_time FROM bounds){lower_bound}
-)
-SELECT s.{s_entity}, s.{s_ts}, {", ".join(f"h.{_quote_ident(c)}" for c in feature_columns)}
+){_window_ctes(windows, spine, s_entity, s_ts, h_entity, part)}
+SELECT s.{s_entity}, s.{s_ts}, {", ".join(_column(c, windows) for c in feature_columns)}
 FROM {spine} s
 ASOF LEFT JOIN history h
   ON s.{s_entity} = h.{h_entity}
- AND s.{s_ts} >= h.{h_ts}
+ AND s.{s_ts} >= h.{h_ts}{_window_joins(windows, s_entity, s_ts)}
 """
+
+
+# What each aggregation reads of its share, and the exact type it is totalled in.
+_NEEDS = {"count": (SHARE_COUNT,), "sum": (SHARE_SUM,), "avg": (SHARE_SUM, SHARE_COUNT)}
+_EXACT = {SHARE_COUNT: "BIGINT", SHARE_SUM: "DECIMAL(38, 12)"}
+
+
+def _share_columns(windows: dict) -> list[tuple[str, str]]:
+    """Each share column the windows read, with its suffix."""
+    return [(c + x, x) for c, (kind, _) in windows.items() for x in _NEEDS[kind]]
+
+
+def _window_ctes(windows: dict, spine: str, s_entity: str, s_ts: str, h_entity: str, part: str) -> str:
+    """Running totals of the shares in event-time order, per entity. A window
+    is then two as-of lookups: the total at T less the total before the
+    window's first second. The totals are exact decimals, so the difference
+    loses nothing however long the history is."""
+    if not windows:
+        return ""
+    q = _quote_ident
+    shares = _share_columns(windows)
+    per_time = ", ".join(f"SUM(CAST(h.{q(c)} AS {_EXACT[x]})) AS {q(c)}" for c, x in shares)
+    running = ", ".join(f"SUM({q(c)}) OVER w AS {q(c)}" for c, _ in shares)
+    cols = ", ".join(f"r.{q(c)}" for c, _ in shares)
+    # One row per event time first, so a streaming ROWS frame gives every
+    # event at that time the same total.
+    return f""",
+per_time AS (
+    SELECT h.{h_entity} AS e, h.{part} AS t, {per_time} FROM history h GROUP BY ALL
+),
+running AS (
+    SELECT e, t, {running} FROM per_time
+    WINDOW w AS (PARTITION BY e ORDER BY t ROWS UNBOUNDED PRECEDING)
+),
+-- The lookups go on the distinct spine points alone: an as-of join sorts
+-- everything it carries, so it must carry nothing else.
+points AS (
+    SELECT DISTINCT {s_entity} AS e, {s_ts} AS ts, {s_ts}::TIMESTAMPTZ AS at FROM {spine}
+),
+hi AS (
+    SELECT p.e, p.ts, {cols} FROM points p ASOF LEFT JOIN running r ON r.e = p.e AND p.at >= r.t
+){"".join(f""",
+lo{w} AS (
+    SELECT p.e, p.ts, {cols} FROM points p
+    ASOF LEFT JOIN running r ON r.e = p.e AND to_timestamp(floor(epoch(p.at)) + {1 - w}) > r.t
+)""" for w in sorted({w for _, w in windows.values()}))}"""
+
+
+def _window_joins(windows: dict, s_entity: str, s_ts: str) -> str:
+    if not windows:
+        return ""
+    return "".join(
+        f"\nLEFT JOIN {j} ON {j}.e = s.{s_entity} AND {j}.ts = s.{s_ts}"
+        for j in ["hi"] + [f"lo{w}" for w in sorted({w for _, w in windows.values()})]
+    )
+
+
+def _column(c: str, windows: dict) -> str:
+    q = _quote_ident
+    if c not in windows:
+        return f"h.{q(c)}"
+    kind, w = windows[c]
+    n, total = (
+        f"CAST(COALESCE(hi.{q(c + x)}, 0) - COALESCE(lo{w}.{q(c + x)}, 0) AS DOUBLE)"
+        for x in (SHARE_COUNT, SHARE_SUM)
+    )
+    value = n if kind == "count" else total
+    if kind == "avg":
+        value = f"CASE WHEN {n} > 0 THEN {total} / {n} ELSE 0.0 END"
+    # An entity with no row by T has no window to report.
+    return f"CASE WHEN h.{q(TS_COLUMN)} IS NULL THEN NULL ELSE {value} END AS {q(c)}"
