@@ -65,6 +65,12 @@ FEATURE_COLUMNS = [
 ]
 
 #: The windowed features, added up from shares in the windowed arm.
+MIN_ROWS_PER_SEC = 60_000
+HOT_SPAN_US = 600_000_000_000
+# A busy key may cost a little over linear, as a sort does. A range join would
+# grow with the square, so 4x the events would cost about 16x.
+SCALE = 4
+MAX_HOT_GROWTH = 5.0
 WINDOWS = {
     "avg_rating_30d": ("avg", 30 * 86_400),
     "review_count_7d": ("count", 7 * 86_400),
@@ -119,14 +125,27 @@ def _frame(rng: random.Random, entity_id: pl.Expr, ts: pl.Expr, value: pl.Expr, 
     )
 
 
+def hot_pull_seconds(workdir: Path, events: int, spine_rows: int, threads: int, memory_limit: str) -> float:
+    """The windowed pull of `e_hot` alone, so nothing else hides how it scales."""
+    path = workdir / f"hot-only-{events}"
+    generate_hot(path, events)
+    _, seconds = run(
+        path, generate_hot_spine(spine_rows), FEATURE_COLUMNS, threads,
+        memory_limit=memory_limit, windows=WINDOWS,
+    )
+    return seconds
+
+
 def generate_hot(path: Path, events: int, chunk: int = 500_000) -> None:
-    """One entity, `e_hot`, with `events` rows 0.6 s apart: a million is about
-    a week, so every one of them is inside one 7-day window."""
+    """One entity, `e_hot`, with `events` rows spread over a week, so every one
+    of them is inside one 7-day window."""
+    path.mkdir(parents=True, exist_ok=True)
+    gap_us = HOT_SPAN_US // events
     rng = random.Random(20261029)
     for part, first in enumerate(range(0, events, chunk)):
         n = min(chunk, events - first)
         at = pl.datetime(2026, 3, 1, time_zone="UTC") + pl.duration(
-            microseconds=pl.int_range(first, first + n, dtype=pl.Int64) * 600_000
+            microseconds=pl.int_range(first, first + n, dtype=pl.Int64) * gap_us
         )
         _frame(rng, pl.lit("e_hot"), at.dt.strftime("%Y-%m-%dT%H:%M:%S%.6fZ"), pl.lit(3.5), n).write_parquet(
             path / f"hot-{part:05d}.parquet", compression="zstd"
@@ -179,7 +198,7 @@ def generate_history(path: Path, entities: int, versions: int, chunk: int = 500_
 def generate_hot_spine(rows: int) -> pl.DataFrame:
     """Spine rows for `e_hot` spread over its week, each with a full window."""
     at = pl.datetime(2026, 3, 1, time_zone="UTC") + pl.duration(
-        microseconds=(pl.int_range(0, rows, dtype=pl.Int64) * 7919) % 600_000_000_000
+        microseconds=(pl.int_range(0, rows, dtype=pl.Int64) * 7919) % HOT_SPAN_US
     )
     return pl.select(entity_id=pl.lit("e_hot"), timestamp=at.dt.strftime("%Y-%m-%dT%H:%M:%S%.6fZ"))
 
@@ -353,8 +372,17 @@ def main() -> int:
         )
         win_rate = win_rows / win_elapsed
         print(f"  {win_rows:,} rows in {win_elapsed:,.1f}s = {win_rate:,.0f} rows/sec")
-        print(f"  {win_elapsed / elapsed:,.2f}x the as-of pull (bar: <= 2x); bar of 60,000 rows/sec "
-              f"{'met' if win_rate >= 60_000 else 'NOT met'}")
+        fast_enough = win_rate >= MIN_ROWS_PER_SEC
+        print(f"  {win_elapsed / elapsed:,.2f}x the as-of pull, for information: the windows add work a "
+              f"lookup does not do")
+        print(f"  bar of {MIN_ROWS_PER_SEC:,} rows/sec {'met' if fast_enough else 'NOT met'}")
+
+        print(f"\n--- windowed, e_hot alone: {SCALE}x the events ---")
+        small = hot_pull_seconds(workdir, args.hot_events // SCALE, args.hot_spine, threads, args.memory_limit)
+        large = hot_pull_seconds(workdir, args.hot_events, args.hot_spine, threads, args.memory_limit)
+        scales = large / small <= MAX_HOT_GROWTH
+        print(f"  {small:,.2f}s, then {large:,.2f}s: {large / small:,.2f}x")
+        print(f"  bar of {MAX_HOT_GROWTH:g}x {'met' if scales else 'NOT met'}")
 
         print("\n--- with state_value, i.e. what SELECT * costs ---")
         blob_rows, blob_elapsed = run(
@@ -366,12 +394,12 @@ def main() -> int:
             f"= {blob_rows / blob_elapsed:,.0f} rows/sec"
         )
         print(f"  projection is {blob_elapsed / elapsed:,.1f}x faster")
+        return 0 if fast_enough and scales else 1
     finally:
         if not args.keep:
             shutil.rmtree(workdir, ignore_errors=True)
         else:
             print(f"\nkept: {workdir}")
-    return 0
 
 
 if __name__ == "__main__":
