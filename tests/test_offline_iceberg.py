@@ -20,9 +20,12 @@ import pytest
 
 from thyme.offline_iceberg import (
     DEFAULT_MAX_LOOKBACK,
+    SHARE_COUNT,
+    SHARE_SUM,
     build_asof_sql,
     feature_columns_for,
     resolve_spine,
+    windowed_columns,
 )
 
 
@@ -395,3 +398,140 @@ class TestPlanShape:
         assert kind is not None, "spine was never materialised"
         assert kind[0] in ("LOCAL TEMPORARY", "BASE TABLE"), kind
         con.close()
+
+
+class TestWindowsAreAddedUpFromShares:
+    """A windowed Count, Sum or Avg is computed at each spine row from the rows'
+    shares, never read from a stored total: a late event's row adds its share
+    and no stored total is corrected.
+
+    The rule is the engine's: an event is in the window at T when it is not
+    after T and its second is one of the W whole seconds ending with T's.
+    """
+
+    WINDOWS = {"n_5m": ("count", 300), "spend_5m": ("sum", 300), "avg_5m": ("avg", 300), "n_1h": ("count", 3600)}
+    EVENTS = [
+        ("card_4417", "2026-10-26T13:00:30Z", 7.0),
+        ("card_4417", "2026-10-26T13:55:07.900Z", 12.0),
+        ("card_4417", "2026-10-26T13:59:58Z", 950.0),
+        ("card_4417", "2026-10-26T14:00:07.120Z", 5.0),
+        ("card_4417", "2026-10-26T14:00:07.650Z", 20.0),
+        ("c999", "2026-10-26T14:00:00Z", 1.0),
+        # Written last, as a late event is: the pull does not care.
+        ("card_4417", "2026-10-26T13:57:30Z", 40.0),
+    ]
+    SPINE = [
+        ("card_4417", "2026-10-26T14:00:07.400Z"),
+        ("card_4417", "2026-10-26T14:00:07Z"),
+        ("card_4417", "2026-10-26T13:55:07.950Z"),
+        ("c999", "2026-10-26T15:00:00Z"),
+        ("c999", "2026-10-26T13:00:00Z"),
+        ("cmissing", "2026-10-26T14:00:00Z"),
+    ]
+
+    @staticmethod
+    def _us(ts: str) -> int:
+        from datetime import datetime
+
+        return int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1_000_000)
+
+    def _expected(self, entity: str, at: str) -> dict:
+        """Brute force over the events, None when no row is at or before T."""
+        t = self._us(at)
+        mine = [(self._us(ts), v) for e, ts, v in self.EVENTS if e == entity]
+        if not any(u <= t for u, _ in mine):
+            return {c: None for c in self.WINDOWS}
+        out = {}
+        for col, (kind, w) in self.WINDOWS.items():
+            start = (t // 1_000_000 + 1) * 1_000_000 - w * 1_000_000
+            inside = [v for u, v in mine if start <= u <= t]
+            out[col] = {
+                "count": float(len(inside)),
+                "sum": sum(inside),
+                "avg": sum(inside) / len(inside) if inside else 0.0,
+            }[kind]
+        return out
+
+    @pytest.fixture
+    def con(self):
+        con = duckdb.connect()
+        shares = ", ".join(f'"{c}{SHARE_SUM}" DOUBLE, "{c}{SHARE_COUNT}" DOUBLE, "{c}" DOUBLE' for c in self.WINDOWS)
+        con.execute(f"CREATE TABLE hist(entity_id VARCHAR, ts VARCHAR, event_time TIMESTAMPTZ, {shares})")
+        for e, ts, v in self.EVENTS:
+            values = []
+            for kind, _ in self.WINDOWS.values():
+                # The stored total is deliberately wrong: the pull must not read it.
+                values += [1.0 if kind == "count" else v, 1.0, -1.0]
+            con.execute(
+                f"INSERT INTO hist VALUES (?, ?, ?::TIMESTAMPTZ, {', '.join('?' * len(values))})",
+                [e, ts, ts, *values],
+            )
+        con.execute("CREATE TABLE spine(entity_id VARCHAR, timestamp VARCHAR)")
+        con.executemany("INSERT INTO spine VALUES (?, ?)", self.SPINE)
+        return con
+
+    def test_each_spine_row_gets_the_exact_window_at_its_time(self, con):
+        # given the pull over rows that carry shares, with two window lengths
+        sql = build_asof_sql(
+            table="hist",
+            feature_columns=list(self.WINDOWS),
+            entity_column="entity_id",
+            timestamp_column="timestamp",
+            spine_relation="spine",
+            windows=self.WINDOWS,
+        )
+
+        # when it runs
+        rows = con.execute(sql).fetchall()
+
+        # then every spine row holds the window by the engine's rule: a later
+        # event in T's own second is out, the second W back is out, an empty
+        # window is 0, and an entity with no row by T is null
+        assert len(rows) == len(self.SPINE)
+        for entity, at, *values in rows:
+            got = dict(zip(self.WINDOWS, values))
+            want = self._expected(entity, at)
+            for col in self.WINDOWS:
+                assert got[col] == pytest.approx(want[col]) if want[col] is not None else got[col] is None, (
+                    f"{entity} @ {at} {col}: got {got[col]}, want {want[col]}"
+                )
+
+    def test_the_worked_example(self, con):
+        # given card_4417's spine row at 14:00:07.400
+        sql = build_asof_sql(
+            table="hist", feature_columns=list(self.WINDOWS), entity_column="entity_id",
+            timestamp_column="timestamp", spine_relation="spine", windows=self.WINDOWS,
+        )
+
+        # when the pull runs
+        rows = {(r[0], r[1]): r[2:] for r in con.execute(sql).fetchall()}
+
+        # then the 5-minute window holds 40 + 950 + 5, and the hour 5 payments
+        n_5m, spend_5m, avg_5m, n_1h = rows[("card_4417", "2026-10-26T14:00:07.400Z")]
+        assert (n_5m, spend_5m, n_1h) == (3.0, 995.0, 5.0)
+        assert avg_5m == pytest.approx(995.0 / 3)
+
+
+class TestWindowedColumns:
+    def test_lists_each_windowed_count_sum_and_avg_of_a_dataset(self):
+        # given a pipeline aggregating into CardStats
+        from thyme.dataset import _PIPELINE_REGISTRY
+
+        _PIPELINE_REGISTRY[("CardStats", "p")] = {
+            "output_dataset": "CardStats",
+            "operators": [
+                {"filter": {}},
+                {"aggregate": {"keys": ["card_id"], "specs": [
+                    {"type": "count", "window": "5m", "output_field": "n_5m"},
+                    {"type": "avg", "window": "1h", "output_field": "avg_1h"},
+                    {"type": "max", "window": "1h", "output_field": "max_1h"},
+                    {"type": "sum", "window": "", "output_field": "spend_all"},
+                ]}},
+            ],
+        }
+        try:
+            # then only the bounded Count, Sum and Avg are listed
+            assert windowed_columns("CardStats") == {"n_5m": ("count", 300), "avg_1h": ("avg", 3600)}
+            assert windowed_columns("Other") == {}
+        finally:
+            del _PIPELINE_REGISTRY[("CardStats", "p")]

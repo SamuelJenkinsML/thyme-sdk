@@ -22,6 +22,7 @@ from thyme.offline_iceberg import (
     DEFAULT_MAX_LOOKBACK,
     feature_columns_for,
     resolve_spine,
+    windowed_columns,
 )
 from thyme.result import ThymeResult
 from thyme.types import schema_from_featureset
@@ -429,6 +430,7 @@ class ThymeClient:
             entity_column=entity_column,
             timestamp_column=timestamp_column,
             max_lookback=max_lookback,
+            windows=windowed_columns(fs_name),
         )
         metadata = {
             "entity_type": fs_name,
