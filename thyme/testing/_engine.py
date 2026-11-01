@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from thyme.testing._expectations import ExpectationViolation, check_expectations
-from thyme.testing._expr_eval import apply_pre_ops
+from thyme.testing._expr_eval import apply_pre_ops, eval_predicate
 from thyme.testing._window import parse_window_duration
 
 
@@ -18,8 +18,15 @@ from thyme.testing._window import parse_window_duration
 
 @dataclasses.dataclass
 class _EventEntry:
-    timestamp_secs: int
+    timestamp: float
     values: dict[str, float]
+    # Output fields of the specs whose predicate this event passed. The engine
+    # decides once at ingest, so a later change to the event cannot alter it.
+    matched: frozenset[str]
+
+    @property
+    def timestamp_secs(self) -> int:
+        return int(self.timestamp)
 
 
 class _GroupState:
@@ -28,15 +35,24 @@ class _GroupState:
     def __init__(self) -> None:
         self.events: list[_EventEntry] = []
 
-    def add_event(self, timestamp_secs: int, values: dict[str, float]) -> None:
-        self.events.append(_EventEntry(timestamp_secs=timestamp_secs, values=values))
+    def add_event(
+        self, timestamp: float, values: dict[str, float], matched: frozenset[str],
+    ) -> None:
+        self.events.append(
+            _EventEntry(timestamp=timestamp, values=values, matched=matched)
+        )
 
     def compute_aggregate(
-        self, agg_spec: dict, reference_time: int, *, upper_bound: int | None = None,
+        self, agg_spec: dict, reference_time: int, *, upper_bound: float | None = None,
     ) -> float | str | list | None:
         """Compute one aggregate over events within the window.
 
-        Mirrors the Rust engine's semantics:
+        Mirrors the Rust engine's semantics. A window of W seconds holds the W
+        whole seconds ending at reference_time, so an event exactly W back has
+        expired. An empty window is unbounded. The spec's predicate gates every
+        aggregation type. Only count, sum and avg follow the engine exactly at
+        the window's edge: it retires the others by max_lateness, which this
+        executor does not model.
         - count: number of events in window
         - sum: sum of field values in window
         - avg: sum / count (0.0 if empty)
@@ -49,18 +65,21 @@ class _GroupState:
             agg_spec: Aggregation specification dict.
             reference_time: The reference time for windowing (epoch seconds).
             upper_bound: If set, only include events with timestamp <= upper_bound.
-                         Used for point-in-time correct offline queries.
+                         Used for point-in-time correct offline queries. Keeps
+                         its fraction: an event later in the read's own second
+                         has not happened yet.
         """
         window_secs = parse_window_duration(agg_spec["window"])
-        cutoff = (reference_time - window_secs) if window_secs > 0 else 0
 
-        if upper_bound is not None:
+        in_window = self.events
+        if window_secs > 0:
             in_window = [
-                e for e in self.events
-                if e.timestamp_secs >= cutoff and e.timestamp_secs <= upper_bound
+                e for e in in_window if e.timestamp_secs > reference_time - window_secs
             ]
-        else:
-            in_window = [e for e in self.events if e.timestamp_secs >= cutoff]
+        if upper_bound is not None:
+            in_window = [e for e in in_window if e.timestamp <= upper_bound]
+
+        in_window = [e for e in in_window if agg_spec["output_field"] in e.matched]
 
         agg_type = agg_spec["type"]
         field_name = agg_spec.get("field", "")
@@ -125,15 +144,15 @@ class _GroupState:
 # ---------------------------------------------------------------------------
 
 
-def _parse_timestamp_secs(ts: Any) -> int:
-    """Convert a timestamp value to epoch seconds.
+def _parse_timestamp(ts: Any) -> float:
+    """Convert a timestamp value to epoch seconds, keeping any fraction.
 
     Accepts: datetime objects, ISO 8601 strings, or numeric epoch seconds.
     """
     if isinstance(ts, datetime):
-        return int(ts.timestamp())
+        return ts.timestamp()
     if isinstance(ts, (int, float)):
-        return int(ts)
+        return float(ts)
     if isinstance(ts, str):
         s = ts.strip()
         # ISO 8601 with Z suffix
@@ -142,7 +161,7 @@ def _parse_timestamp_secs(ts: Any) -> int:
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return int(dt.timestamp())
+        return dt.timestamp()
     raise ValueError(f"Cannot parse timestamp: {ts!r}")
 
 
@@ -230,7 +249,7 @@ class MockContext:
 
                     # Parse timestamp
                     ts_val = event.get(ts_field) if ts_field else None
-                    ts_secs = _parse_timestamp_secs(ts_val) if ts_val is not None else 0
+                    timestamp = _parse_timestamp(ts_val) if ts_val is not None else 0.0
 
                     # Collect all field values referenced by agg specs. Numeric
                     # values are coerced to float (sum/avg/min/max); Last/LastK
@@ -247,11 +266,17 @@ class MockContext:
                             else:
                                 values[field_name] = val
 
+                    matched = frozenset(
+                        spec["output_field"] for spec in agg_specs
+                        if spec.get("predicate") is None
+                        or eval_predicate(spec["predicate"], event)
+                    )
+
                     # Store in group state (legacy dict-based)
                     state_key = (output_dataset, pipe_name, group_key_str)
                     if state_key not in self._group_states:
                         self._group_states[state_key] = _GroupState()
-                    self._group_states[state_key].add_event(ts_secs, values)
+                    self._group_states[state_key].add_event(timestamp, values, matched)
 
                     # Store in Polars layer
                     polars_key = (output_dataset, pipe_name)
@@ -259,7 +284,7 @@ class MockContext:
                         self._polars_states[polars_key] = []
                     polars_row = {
                         "group_key": group_key_str,
-                        "timestamp_secs": ts_secs,
+                        "timestamp_secs": int(timestamp),
                     }
                     polars_row.update(values)
                     self._polars_states[polars_key].append(polars_row)
@@ -463,12 +488,12 @@ class MockContext:
         self,
         dataset_name: str,
         entity_id: str,
-        at_timestamp_secs: int,
+        at_timestamp: float,
     ) -> dict[str, Any]:
         """Like _get_aggregates_by_name but with point-in-time semantics.
 
-        Only considers events with timestamp_secs <= at_timestamp_secs.
-        Uses at_timestamp_secs as the reference time for windowing.
+        Only considers events with timestamp <= at_timestamp.
+        Uses at_timestamp's second as the reference time for windowing.
         """
         from thyme.dataset import _PIPELINE_REGISTRY
 
@@ -497,7 +522,7 @@ class MockContext:
 
                 for spec in agg_specs:
                     result[spec["output_field"]] = group.compute_aggregate(
-                        spec, at_timestamp_secs, upper_bound=at_timestamp_secs,
+                        spec, int(at_timestamp), upper_bound=at_timestamp,
                     )
 
         return result
@@ -506,7 +531,7 @@ class MockContext:
         self,
         featureset_class: type,
         entity_id: str,
-        at_timestamp_secs: int,
+        at_timestamp: float,
     ) -> dict[str, Any]:
         """Like query() but with point-in-time semantics."""
         from thyme.featureset import _FEATURESET_REGISTRY
@@ -525,7 +550,7 @@ class MockContext:
                 continue
             for dep_name in ext["deps"]:
                 aggregates = self._get_aggregates_at_time(
-                    dep_name, entity_id, at_timestamp_secs,
+                    dep_name, entity_id, at_timestamp,
                 )
                 for output_feat in ext["outputs"]:
                     if output_feat in aggregates:
@@ -584,9 +609,9 @@ class MockContext:
         for entity in entities:
             eid = entity[entity_column]
             ts_val = entity[timestamp_column]
-            ts_secs = _parse_timestamp_secs(ts_val)
+            at_timestamp = _parse_timestamp(ts_val)
 
-            features = self._query_at_time(featureset_class, eid, ts_secs)
+            features = self._query_at_time(featureset_class, eid, at_timestamp)
             row = {entity_column: eid, timestamp_column: ts_val}
             row.update(features)
             rows.append(row)

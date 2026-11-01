@@ -15,6 +15,7 @@ from thyme import (
     Max,
     Min,
     Sum,
+    col,
     dataset,
     expectations,
     extractor,
@@ -1063,3 +1064,188 @@ class TestPolarsDataFrameAPI:
         elapsed = time.monotonic() - start
 
         assert elapsed < 0.2, f"10k events took {elapsed:.3f}s, expected < 0.2s"
+
+
+# ---------------------------------------------------------------------------
+# Window and where parity with the engine
+# ---------------------------------------------------------------------------
+
+
+READ_AT = "2026-03-15T14:00:07+00:00"
+ONE_WINDOW_BACK = "2026-03-15T13:55:07+00:00"
+ONE_SECOND_INSIDE = "2026-03-15T13:55:08+00:00"
+
+
+def _windowed_stats(Source, agg):
+    """A dataset with one aggregate, `out`, and a featureset that reads it."""
+    @dataset(version=1, index=True)
+    class Windowed:
+        entity_id: str = field(key=True)
+        out: float = field()
+        timestamp: datetime = field(timestamp=True)
+
+        @pipeline(version=1)
+        @inputs(Source)
+        def windowed_pipe(cls, src):
+            return src.groupby("entity_id").aggregate(out=agg)
+
+    @featureset
+    class WindowedFeatures:
+        entity_id: str = feature()
+        out: float = feature()
+
+        @extractor(deps=[Windowed])
+        @extractor_inputs("entity_id")
+        @extractor_outputs("out")
+        def get_out(cls, ts, entity_ids):
+            return Windowed.lookup(ts, entity_id=entity_ids)
+
+    return Windowed, WindowedFeatures
+
+
+def _read_offline(ctx, features, at):
+    result = ctx.query_offline(features, [{"entity_id": "card_4417", "timestamp": at}])
+    return result.to_dict()[0]["out"]
+
+
+class TestWindowAndWhereMatchTheEngine:
+    def test_where_on_a_windowed_count_counts_only_matching_events(self):
+        # Given
+        Source = _make_source()
+        Windowed, _ = _windowed_stats(Source, Count(window="1h", where=col("value") > 50))
+        ctx = MockContext()
+        ctx.add_events(Source, [
+            {"entity_id": "card_4417", "value": 10.0, "timestamp": ONE_SECOND_INSIDE},
+            {"entity_id": "card_4417", "value": 100.0, "timestamp": READ_AT},
+        ])
+
+        # When
+        result = ctx.get_aggregates(Windowed, "card_4417")
+
+        # Then
+        assert result["out"] == 1.0
+
+    def test_where_reads_a_field_the_aggregation_does_not(self):
+        # Given
+        @dataset(version=1)
+        class Payment:
+            entity_id: str = field(key=True)
+            value: float = field()
+            country: str = field()
+            timestamp: datetime = field(timestamp=True)
+
+        Windowed, _ = _windowed_stats(
+            Payment, Sum(of="value", window="1h", where=col("country") == "GB"),
+        )
+        ctx = MockContext()
+        ctx.add_events(Payment, [
+            {"entity_id": "card_4417", "value": 10.0, "country": "GB", "timestamp": ONE_SECOND_INSIDE},
+            {"entity_id": "card_4417", "value": 100.0, "country": "FR", "timestamp": READ_AT},
+        ])
+
+        # When
+        result = ctx.get_aggregates(Windowed, "card_4417")
+
+        # Then
+        assert result["out"] == 10.0
+
+    def test_where_on_a_missing_column_is_false(self):
+        # Given
+        Source = _make_source()
+        Windowed, _ = _windowed_stats(Source, Count(window="1h", where=col("absent") > 50))
+        ctx = MockContext()
+        ctx.add_events(Source, [
+            {"entity_id": "card_4417", "value": 100.0, "timestamp": READ_AT},
+        ])
+
+        # When
+        result = ctx.get_aggregates(Windowed, "card_4417")
+
+        # Then
+        assert result["out"] == 0.0
+
+    def test_where_gates_last(self):
+        # Given
+        Source = _make_source()
+        Windowed, _ = _windowed_stats(Source, Last(of="value", window="1h", where=col("value") > 50))
+        ctx = MockContext()
+        ctx.add_events(Source, [
+            {"entity_id": "card_4417", "value": 100.0, "timestamp": ONE_SECOND_INSIDE},
+            {"entity_id": "card_4417", "value": 10.0, "timestamp": READ_AT},
+        ])
+
+        # When
+        result = ctx.get_aggregates(Windowed, "card_4417")
+
+        # Then
+        assert result["out"] == 100.0
+
+    @pytest.mark.parametrize(
+        ("agg", "expected"),
+        [
+            (Count(window="5m"), 1.0),
+            (Sum(of="value", window="5m"), 6.0),
+            (Avg(of="value", window="5m"), 6.0),
+        ],
+        ids=["count", "sum", "avg"],
+    )
+    def test_window_holds_the_w_seconds_ending_at_the_read(self, agg, expected):
+        # Given
+        Source = _make_source()
+        _, Features = _windowed_stats(Source, agg)
+        ctx = MockContext()
+        ctx.add_events(Source, [
+            {"entity_id": "card_4417", "value": 4.0, "timestamp": ONE_WINDOW_BACK},
+            {"entity_id": "card_4417", "value": 6.0, "timestamp": ONE_SECOND_INSIDE},
+        ])
+
+        # When
+        result = _read_offline(ctx, Features, READ_AT)
+
+        # Then
+        assert result == pytest.approx(expected)
+
+    def test_event_one_window_before_the_latest_event_is_not_counted(self):
+        # Given
+        Source = _make_source()
+        Windowed, _ = _windowed_stats(Source, Count(window="5m"))
+        ctx = MockContext()
+        ctx.add_events(Source, [
+            {"entity_id": "card_4417", "value": 1.0, "timestamp": ONE_WINDOW_BACK},
+            {"entity_id": "card_4417", "value": 1.0, "timestamp": READ_AT},
+        ])
+
+        # When
+        result = ctx.get_aggregates(Windowed, "card_4417")
+
+        # Then
+        assert result["out"] == 1.0
+
+    def test_window_compares_whole_seconds(self):
+        # Given
+        Source = _make_source()
+        _, Features = _windowed_stats(Source, Count(window="5m"))
+        ctx = MockContext()
+        ctx.add_events(Source, [
+            {"entity_id": "card_4417", "value": 1.0, "timestamp": "2026-03-15T13:55:07.900+00:00"},
+            {"entity_id": "card_4417", "value": 1.0, "timestamp": "2026-03-15T13:55:08.100+00:00"},
+        ])
+
+        # When
+        result = _read_offline(ctx, Features, "2026-03-15T14:00:07.500+00:00")
+
+        # Then
+        assert result == 1.0
+
+    def test_unbounded_window_keeps_an_event_without_a_timestamp(self):
+        # Given
+        Source = _make_source()
+        Windowed, _ = _windowed_stats(Source, Count(window=""))
+        ctx = MockContext()
+        ctx.add_events(Source, [{"entity_id": "card_4417", "value": 1.0}])
+
+        # When
+        result = ctx.get_aggregates(Windowed, "card_4417")
+
+        # Then
+        assert result["out"] == 1.0
