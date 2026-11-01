@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from thyme.testing._expectations import ExpectationViolation, check_expectations
-from thyme.testing._expr_eval import apply_pre_ops
+from thyme.testing._expr_eval import apply_pre_ops, eval_predicate
 from thyme.testing._window import parse_window_duration
 
 
@@ -20,6 +20,7 @@ from thyme.testing._window import parse_window_duration
 class _EventEntry:
     timestamp_secs: int
     values: dict[str, float]
+    record: dict[str, Any]
 
 
 class _GroupState:
@@ -28,15 +29,22 @@ class _GroupState:
     def __init__(self) -> None:
         self.events: list[_EventEntry] = []
 
-    def add_event(self, timestamp_secs: int, values: dict[str, float]) -> None:
-        self.events.append(_EventEntry(timestamp_secs=timestamp_secs, values=values))
+    def add_event(
+        self, timestamp_secs: int, values: dict[str, float], record: dict[str, Any],
+    ) -> None:
+        self.events.append(
+            _EventEntry(timestamp_secs=timestamp_secs, values=values, record=record)
+        )
 
     def compute_aggregate(
         self, agg_spec: dict, reference_time: int, *, upper_bound: int | None = None,
     ) -> float | str | list | None:
         """Compute one aggregate over events within the window.
 
-        Mirrors the Rust engine's semantics:
+        Mirrors the Rust engine's semantics. A window of W seconds holds the W
+        whole seconds ending at reference_time, so an event exactly W back has
+        expired. An empty window is unbounded. The spec's predicate gates every
+        aggregation type.
         - count: number of events in window
         - sum: sum of field values in window
         - avg: sum / count (0.0 if empty)
@@ -52,15 +60,18 @@ class _GroupState:
                          Used for point-in-time correct offline queries.
         """
         window_secs = parse_window_duration(agg_spec["window"])
-        cutoff = (reference_time - window_secs) if window_secs > 0 else 0
 
-        if upper_bound is not None:
+        in_window = self.events
+        if window_secs > 0:
             in_window = [
-                e for e in self.events
-                if e.timestamp_secs >= cutoff and e.timestamp_secs <= upper_bound
+                e for e in in_window if e.timestamp_secs > reference_time - window_secs
             ]
-        else:
-            in_window = [e for e in self.events if e.timestamp_secs >= cutoff]
+        if upper_bound is not None:
+            in_window = [e for e in in_window if e.timestamp_secs <= upper_bound]
+
+        predicate = agg_spec.get("predicate")
+        if predicate is not None:
+            in_window = [e for e in in_window if eval_predicate(predicate, e.record)]
 
         agg_type = agg_spec["type"]
         field_name = agg_spec.get("field", "")
@@ -251,7 +262,7 @@ class MockContext:
                     state_key = (output_dataset, pipe_name, group_key_str)
                     if state_key not in self._group_states:
                         self._group_states[state_key] = _GroupState()
-                    self._group_states[state_key].add_event(ts_secs, values)
+                    self._group_states[state_key].add_event(ts_secs, values, event)
 
                     # Store in Polars layer
                     polars_key = (output_dataset, pipe_name)
