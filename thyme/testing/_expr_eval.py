@@ -31,7 +31,7 @@ def eval_derivation(derivation: expr_pb2.Derivation, record: dict[str, Any]) -> 
         if op == expr_pb2.ARITH_MUL:
             return lhs * rhs
         if op == expr_pb2.ARITH_DIV:
-            return lhs / rhs
+            return None if rhs == 0 else lhs / rhs
         raise ValueError(f"unknown arith op: {op}")
     if kind == "fill_null":
         value = eval_derivation(derivation.fill_null.value, record)
