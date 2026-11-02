@@ -20,9 +20,7 @@ from thyme.offline_catalog import CatalogConfig, connect
 from thyme.offline_extractors import apply_extractors, runnable_extractors
 from thyme.offline_iceberg import (
     DEFAULT_MAX_LOOKBACK,
-    feature_columns_for,
-    resolve_spine,
-    windowed_columns,
+    resolve_featureset,
 )
 from thyme.result import ThymeResult
 from thyme.types import schema_from_featureset
@@ -321,6 +319,8 @@ class ThymeClient:
 
         Raises:
             httpx.HTTPStatusError: On non-2xx response from query-server.
+            ValueError: On the Iceberg path, when a table or column is missing,
+                or when no pipeline in this process declares a table's windows.
         """
         if catalog is not None or _iceberg_configured():
             return self._query_offline_iceberg(
@@ -411,26 +411,19 @@ class ThymeClient:
         meta = _get_featureset_meta(featureset)
         fs_name = meta["name"]
 
-        columns = feature_columns_for(meta)
-        if not columns:
-            raise ValueError(
-                f"featureset {fs_name!r} has no stored features to read."
-            )
-
         spine = _normalize_to_polars(entities).select(
             [entity_column, timestamp_column]
         )
 
         con = connect(catalog)
-        relation = resolve_spine(
+        relation = resolve_featureset(
             con,
-            table=catalog.table(fs_name),
-            feature_columns=columns,
+            featureset_meta=meta,
+            catalog=catalog,
             spine=spine.to_arrow(),
             entity_column=entity_column,
             timestamp_column=timestamp_column,
             max_lookback=max_lookback,
-            windows=windowed_columns(fs_name),
         )
         metadata = {
             "entity_type": fs_name,
