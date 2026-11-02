@@ -23,7 +23,7 @@ from thyme.offline_iceberg import (
     SHARE_COUNT,
     SHARE_SUM,
     build_asof_sql,
-    feature_columns_for,
+    stored_columns,
     resolve_spine,
     windowed_columns,
 )
@@ -76,23 +76,36 @@ class TestColumnProjection:
         # then SELECT * never appears -- it would pull every blob column
         assert "*" not in sql
 
-    def test_feature_columns_for_excludes_request_and_derived_features(self):
-        # given a featureset mixing stored, request-time and derived features
+    def test_stored_columns_are_the_numeric_lookups_by_dataset(self):
+        # given a featureset mixing stored, request-time, derived and list features
         meta = {
             "name": "UserFeatures",
             "features": [
-                {"name": "order_count_24h", "dtype": "int"},
+                {"name": "orders", "dtype": "int"},
+                {"name": "recent", "dtype": "list"},
                 {"name": "live_input", "dtype": "float", "request": True},
-                {"name": "is_suspicious", "dtype": "bool", "deps": ["order_count_24h"]},
+                {"name": "is_suspicious", "dtype": "bool", "deps": ["orders"]},
+            ],
+            "extractors": [
+                {
+                    "kind": "LOOKUP",
+                    "outputs": ["orders"],
+                    "lookup_info": {"dataset_name": "UserStats", "field_name": "order_count_24h"},
+                },
+                {
+                    "kind": "LOOKUP",
+                    "outputs": ["recent"],
+                    "lookup_info": {"dataset_name": "UserStats", "field_name": "recent"},
+                },
+                {"kind": "PY_FUNC", "outputs": ["is_suspicious"]},
             ],
         }
 
-        # when resolving what to read from the table
-        cols = feature_columns_for(meta)
+        # when resolving what to read
+        by_dataset = stored_columns(meta)
 
-        # then only the stored feature is a table column; the request feature
-        # arrives from the caller and the derived one is computed
-        assert cols == ["order_count_24h"]
+        # then only the stored numeric feature is a column, under its dataset
+        assert by_dataset == {"UserStats": [("orders", "order_count_24h")]}
 
 
 class TestLookbackPruning:

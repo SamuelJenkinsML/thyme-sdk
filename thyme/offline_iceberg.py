@@ -84,6 +84,7 @@ DEFAULT_MAX_LOOKBACK = "90 days"
 SHARE_SUM = "__share_sum"
 SHARE_COUNT = "__share_count"
 WINDOWED_TYPES = ("count", "sum", "avg")
+NUMERIC_DTYPES = ("int", "float", "bool")
 
 
 def _quote_ident(name: str) -> str:
@@ -91,30 +92,29 @@ def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def feature_columns_for(featureset_meta: dict) -> list[str]:
-    """The table columns a featureset needs, in declaration order.
+def stored_columns(featureset_meta: dict) -> dict[str, list[tuple[str, str]]]:
+    """Where a featureset's stored features live: output dataset -> (feature, column).
 
-    Excludes two kinds of feature that are not columns:
-
-    - **request-time** features (TH-216), whose values arrive from the caller and
-      were never written to the store;
-    - **derived** features, computed by an extractor from other features. Their
-      inputs are columns; they are not.
-
-    Reading a column that does not exist is a hard error rather than a silent
-    null, so being precise here is what keeps the projection honest.
+    The sink names a table after a pipeline's output dataset, so a featureset's
+    own name is not a table, and one featureset can read several. A feature
+    with no LOOKUP extractor is not stored: it is derived, sent with the
+    request, or the entity key. The store holds numeric features as columns;
+    anything else has no column to ask for.
     """
-    columns: list[str] = []
-    for feature in featureset_meta.get("features", []):
-        if feature.get("request"):
+    numeric = {
+        f["name"]
+        for f in featureset_meta.get("features", [])
+        if f.get("dtype") in NUMERIC_DTYPES
+    }
+    by_dataset: dict[str, list[tuple[str, str]]] = {}
+    for extractor in featureset_meta.get("extractors", []):
+        info = extractor.get("lookup_info")
+        if extractor.get("kind") != "LOOKUP" or not info:
             continue
-        if feature.get("deps"):
-            continue
-        name = feature["name"]
-        if name in BLOB_COLUMNS:
-            continue
-        columns.append(name)
-    return columns
+        feature = extractor["outputs"][0]
+        if feature in numeric and info["field_name"] not in BLOB_COLUMNS:
+            by_dataset.setdefault(info["dataset_name"], []).append((feature, info["field_name"]))
+    return by_dataset
 
 
 def windowed_columns(dataset: str) -> dict[str, tuple[str, int]]:
@@ -139,6 +139,91 @@ def derived_features(featureset_meta: dict) -> list[str]:
         for f in featureset_meta.get("features", [])
         if f.get("deps") and not f.get("request")
     ]
+
+
+def _quote_table(table: str) -> str:
+    return ".".join(_quote_ident(part) for part in table.split("."))
+
+
+def _check_table(con: Any, dataset: str, table: str, columns: list[str], windows: dict) -> None:
+    """Refuse a table the pull cannot read correctly, by name.
+
+    Reading stored totals where the table has shares would not fail: a late row
+    has no total, so its contribution would be lost with no error.
+    """
+    try:
+        have = {row[0] for row in con.execute(f"DESCRIBE {_quote_table(table)}").fetchall()}
+    except Exception as e:
+        raise ValueError(
+            f"no offline table {table} for dataset {dataset!r}; "
+            f"the sink creates it when the pipeline first writes: {e}"
+        ) from e
+    wanted = columns + [c for c, _ in _share_columns({c: w for c, w in windows.items() if c in columns})]
+    missing = sorted(set(wanted) - have)
+    if missing:
+        raise ValueError(f"table {table} has no column {missing} for dataset {dataset!r}")
+    unknown = sorted(
+        c for c in columns if c not in windows and {c + SHARE_SUM, c + SHARE_COUNT} & have
+    )
+    if unknown:
+        raise ValueError(
+            f"table {table} holds shares for {unknown} but no pipeline in this process "
+            f"declares {dataset!r}'s windows; import the module that defines it"
+        )
+
+
+def resolve_featureset(
+    con: Any,
+    *,
+    featureset_meta: dict,
+    catalog: Any,
+    spine: Any,
+    entity_column: str,
+    timestamp_column: str,
+    max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
+) -> Any:
+    """Resolve a spine against every table a featureset reads; returns a relation.
+
+    The result has the spine's two columns and one column per stored feature,
+    under the feature's name. One dataset stays unevaluated. Several are read
+    here and joined, because each dataset's as-of join replaces the same spine
+    table.
+    """
+    by_dataset = stored_columns(featureset_meta)
+    if not by_dataset:
+        raise ValueError(
+            f"featureset {featureset_meta['name']!r} has no stored features to read."
+        )
+
+    keys = f"{_quote_ident(entity_column)}, {_quote_ident(timestamp_column)}"
+    parts: list[str] = []
+    for dataset, pairs in sorted(by_dataset.items()):
+        table = catalog.table(dataset)
+        columns = sorted({column for _, column in pairs})
+        windows = windowed_columns(dataset)
+        _check_table(con, dataset, table, columns, windows)
+        relation = resolve_spine(
+            con,
+            table=table,
+            feature_columns=columns,
+            spine=spine,
+            entity_column=entity_column,
+            timestamp_column=timestamp_column,
+            max_lookback=max_lookback,
+            windows=windows,
+        )
+        named = ", ".join(f"{_quote_ident(c)} AS {_quote_ident(f)}" for f, c in pairs)
+        if len(by_dataset) == 1:
+            return relation.project(f"{keys}, {named}")
+
+        parts.append(f"thyme_part_{len(parts)}")
+        con.execute(
+            f"CREATE OR REPLACE TEMP TABLE {_quote_ident(parts[-1])} AS "
+            f"SELECT DISTINCT {keys}, {named} FROM ({relation.sql_query()})"
+        )
+
+    joins = " ".join(f"LEFT JOIN {_quote_ident(p)} USING ({keys})" for p in parts)
+    return con.sql(f"SELECT * FROM thyme_spine {joins}")
 
 
 def resolve_spine(
@@ -258,7 +343,7 @@ def build_asof_sql(
             f"feature columns and are never needed on the training path."
         )
 
-    tbl = ".".join(_quote_ident(part) for part in table.split("."))
+    tbl = _quote_table(table)
     spine = _quote_ident(spine_relation)
     s_entity = _quote_ident(entity_column)
     s_ts = _quote_ident(timestamp_column)
