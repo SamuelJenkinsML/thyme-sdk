@@ -86,6 +86,12 @@ SHARE_COUNT = "__share_count"
 WINDOWED_TYPES = ("count", "sum", "avg")
 NUMERIC_DTYPES = ("int", "float", "bool")
 
+# Last and LastK have no column: the sink keeps their value as JSON text in this
+# map, a scalar for a Last and a newest-first array for a LastK.
+LATEST_TYPES = ("last", "last_k")
+JSON_FEATURES_COLUMN = "json_features"
+_DUCKDB_TYPES = {"str": "VARCHAR", "int": "BIGINT", "float": "DOUBLE", "bool": "BOOLEAN"}
+
 
 def _quote_ident(name: str) -> str:
     """Quote a SQL identifier, doubling any embedded quote."""
@@ -98,8 +104,8 @@ def stored_columns(featureset_meta: dict) -> dict[str, list[tuple[str, str]]]:
     The sink names a table after a pipeline's output dataset, so a featureset's
     own name is not a table, and one featureset can read several. A feature
     with no LOOKUP extractor is not stored: it is derived, sent with the
-    request, or the entity key. The store holds numeric features as columns;
-    anything else has no column to ask for.
+    request, or the entity key. The store holds numeric features as columns
+    and Last and LastK in `json_features`; anything else has nothing to ask for.
     """
     numeric = {
         f["name"]
@@ -111,9 +117,13 @@ def stored_columns(featureset_meta: dict) -> dict[str, list[tuple[str, str]]]:
         info = extractor.get("lookup_info")
         if extractor.get("kind") != "LOOKUP" or not info:
             continue
-        feature = extractor["outputs"][0]
-        if feature in numeric and info["field_name"] not in BLOB_COLUMNS:
-            by_dataset.setdefault(info["dataset_name"], []).append((feature, info["field_name"]))
+        feature, field, dataset = extractor["outputs"][0], info["field_name"], info["dataset_name"]
+        if field in BLOB_COLUMNS:
+            continue
+        # By the pipeline, not by dtype: a Last of a float is numeric and still
+        # has no column.
+        if field in latest_columns(dataset) or feature in numeric:
+            by_dataset.setdefault(dataset, []).append((feature, field))
     return by_dataset
 
 
@@ -132,6 +142,35 @@ def windowed_columns(dataset: str) -> dict[str, tuple[str, int]]:
     }
 
 
+def latest_columns(dataset: str) -> dict[str, str | None]:
+    """`dataset`'s Last and LastK columns: name -> the DuckDB type the pull
+    returns, or None to return the JSON text.
+
+    The type is the aggregated source field's, a list of it for a LastK. A field
+    the pipeline made itself has no declared type.
+    """
+    from thyme.dataset import _DATASET_REGISTRY, _PIPELINE_REGISTRY
+
+    out: dict[str, str | None] = {}
+    for pipeline in _PIPELINE_REGISTRY.values():
+        if pipeline["output_dataset"] != dataset:
+            continue
+        declared = {
+            f["name"]: f.get("type")
+            for name in pipeline.get("input_datasets", [])
+            for f in _DATASET_REGISTRY.get(name, {}).get("fields", [])
+        }
+        for op in pipeline["operators"]:
+            for spec in op.get("aggregate", {}).get("specs", []):
+                if spec["type"] not in LATEST_TYPES:
+                    continue
+                element = _DUCKDB_TYPES.get(declared.get(spec.get("field")))
+                if element is not None and spec["type"] == "last_k":
+                    element += "[]"
+                out[spec["output_field"]] = element
+    return out
+
+
 def derived_features(featureset_meta: dict) -> list[str]:
     """Features computed by an extractor rather than read from a table."""
     return [
@@ -141,11 +180,17 @@ def derived_features(featureset_meta: dict) -> list[str]:
     ]
 
 
+def _quote_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _quote_table(table: str) -> str:
     return ".".join(_quote_ident(part) for part in table.split("."))
 
 
-def _check_table(con: Any, dataset: str, table: str, columns: list[str], windows: dict) -> None:
+def _check_table(
+    con: Any, dataset: str, table: str, columns: list[str], windows: dict, latest: dict
+) -> None:
     """Refuse a table the pull cannot read correctly, by name.
 
     Reading stored totals where the table has shares would not fail: a late row
@@ -158,7 +203,10 @@ def _check_table(con: Any, dataset: str, table: str, columns: list[str], windows
             f"no offline table {table} for dataset {dataset!r}; "
             f"the sink creates it when the pipeline first writes: {e}"
         ) from e
-    wanted = columns + [c for c, _ in _share_columns({c: w for c, w in windows.items() if c in columns})]
+    wanted = [c for c in columns if c not in latest]
+    wanted += [c for c, _ in _share_columns({c: w for c, w in windows.items() if c in columns})]
+    if set(columns) & set(latest):
+        wanted.append(JSON_FEATURES_COLUMN)
     missing = sorted(set(wanted) - have)
     if missing:
         raise ValueError(f"table {table} has no column {missing} for dataset {dataset!r}")
@@ -201,7 +249,8 @@ def resolve_featureset(
         table = catalog.table(dataset)
         columns = sorted({column for _, column in pairs})
         windows = windowed_columns(dataset)
-        _check_table(con, dataset, table, columns, windows)
+        latest = latest_columns(dataset)
+        _check_table(con, dataset, table, columns, windows, latest)
         relation = resolve_spine(
             con,
             table=table,
@@ -211,6 +260,7 @@ def resolve_featureset(
             timestamp_column=timestamp_column,
             max_lookback=max_lookback,
             windows=windows,
+            latest=latest,
         )
         named = ", ".join(f"{_quote_ident(c)} AS {_quote_ident(f)}" for f, c in pairs)
         if len(by_dataset) == 1:
@@ -236,6 +286,7 @@ def resolve_spine(
     timestamp_column: str,
     max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
     windows: dict[str, tuple[str, int]] | None = None,
+    latest: dict[str, str | None] | None = None,
 ) -> Any:
     """Resolve a whole spine against one offline table, returning a relation.
 
@@ -276,6 +327,7 @@ def resolve_spine(
         spine_relation=spine_relation,
         max_lookback=max_lookback,
         windows=windows,
+        latest=latest,
     )
     return con.sql(sql)
 
@@ -289,6 +341,7 @@ def build_asof_sql(
     spine_relation: str = "spine",
     max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
     windows: dict[str, tuple[str, int]] | None = None,
+    latest: dict[str, str | None] | None = None,
 ) -> str:
     """Build the as-of join that resolves an entire spine in one scan.
 
@@ -306,6 +359,8 @@ def build_asof_sql(
         windows: Columns that are windowed Count, Sum or Avg, as
             :func:`windowed_columns` returns them. Each is added up from the
             rows' shares at the spine row's own time instead of read.
+        latest: Columns that are a Last or LastK, as :func:`latest_columns`
+            returns them. Each is read from its key of `json_features`.
 
     ## Ordering is on the raw timestamp string
 
@@ -352,8 +407,15 @@ def build_asof_sql(
 
     windows = {c: w for c, w in (windows or {}).items() if c in feature_columns}
     shares = [c for c, _ in _share_columns(windows)]
-    # Projected explicitly, never `*` -- see BLOB_COLUMNS.
-    projected = ", ".join(f"h.{_quote_ident(c)}" for c in feature_columns + shares)
+    latest = {c: t for c, t in (latest or {}).items() if c in feature_columns}
+    # Projected explicitly, never `*` -- see BLOB_COLUMNS. The map is read one
+    # key at a time for the same reason.
+    projected = ", ".join(
+        f"h.{_quote_ident(JSON_FEATURES_COLUMN)}[{_quote_literal(c)}] AS {_quote_ident(c)}"
+        if c in latest
+        else f"h.{_quote_ident(c)}"
+        for c in feature_columns + shares
+    )
     if windows:
         projected += f", h.{_quote_ident(PARTITION_COLUMN)}"
 
@@ -390,7 +452,7 @@ history AS (
     FROM {tbl} h
     WHERE h.{part} <= (SELECT max_event_time FROM bounds){lower_bound}
 ){_window_ctes(windows, spine, s_entity, s_ts, h_entity, part)}
-SELECT s.{s_entity}, s.{s_ts}, {", ".join(_column(c, windows) for c in feature_columns)}
+SELECT s.{s_entity}, s.{s_ts}, {", ".join(_column(c, windows, latest) for c in feature_columns)}
 FROM {spine} s
 ASOF LEFT JOIN history h
   ON s.{s_entity} = h.{h_entity}
@@ -453,8 +515,10 @@ def _window_joins(windows: dict, s_entity: str, s_ts: str) -> str:
     )
 
 
-def _column(c: str, windows: dict) -> str:
+def _column(c: str, windows: dict, latest: dict) -> str:
     q = _quote_ident
+    if latest.get(c) is not None:
+        return f"CAST(CAST(h.{q(c)} AS JSON) AS {latest[c]}) AS {q(c)}"
     if c not in windows:
         return f"h.{q(c)}"
     kind, w = windows[c]
