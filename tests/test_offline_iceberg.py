@@ -24,6 +24,7 @@ from thyme.offline_iceberg import (
     SHARE_SUM,
     build_asof_sql,
     stored_columns,
+    latest_columns,
     resolve_spine,
     windowed_columns,
 )
@@ -548,3 +549,110 @@ class TestWindowedColumns:
             assert windowed_columns("Other") == {}
         finally:
             del _PIPELINE_REGISTRY[("CardStats", "p")]
+
+
+class TestLastAndLastKAreReadFromJsonFeatures:
+    """A Last or LastK has no column: the sink keeps its value as JSON in the
+    `json_features` map, and the pull returns it as the online read does, a
+    list for a LastK and one value for a Last."""
+
+    LATEST = {"recent_merchants_3h": "VARCHAR[]", "last_amount": "DOUBLE"}
+
+    @pytest.fixture
+    def con(self):
+        con = duckdb.connect()
+        con.execute(
+            "CREATE TABLE hist(entity_id VARCHAR, ts VARCHAR, event_time TIMESTAMPTZ, "
+            "n DOUBLE, json_features MAP(VARCHAR, VARCHAR))"
+        )
+        con.execute(
+            "INSERT INTO hist VALUES ('card_4417', '2026-10-26T13:00:00Z', "
+            "'2026-10-26T13:00:00Z'::TIMESTAMPTZ, 1.0, "
+            """MAP {'recent_merchants_3h': '["m_tick","m_031"]', 'last_amount': '12.5'})"""
+        )
+        con.execute("CREATE TABLE spine(entity_id VARCHAR, timestamp VARCHAR)")
+        con.executemany(
+            "INSERT INTO spine VALUES (?, ?)",
+            [("card_4417", "2026-10-26T13:30:00Z"), ("cmissing", "2026-10-26T13:30:00Z")],
+        )
+        return con
+
+    def _sql(self, columns):
+        return build_asof_sql(
+            table="hist", feature_columns=columns, entity_column="entity_id",
+            timestamp_column="timestamp", spine_relation="spine", latest=self.LATEST,
+        )
+
+    def test_a_last_k_pull_returns_the_list(self, con):
+        # given card_4417's row holding json_features['recent_merchants_3h']
+        # when a spine row after it is pulled
+        rows = con.execute(self._sql(["n", "recent_merchants_3h"])).fetchall()
+
+        # then the column holds the list, newest first, and a miss is null
+        assert sorted(rows, key=lambda r: r[0]) == [
+            ("card_4417", "2026-10-26T13:30:00Z", 1.0, ["m_tick", "m_031"]),
+            ("cmissing", "2026-10-26T13:30:00Z", None, None),
+        ]
+
+    def test_a_last_of_a_float_returns_a_double(self, con):
+        rows = con.execute(self._sql(["last_amount"])).fetchall()
+        assert ("card_4417", "2026-10-26T13:30:00Z", 12.5) in rows
+
+    def test_the_map_is_read_one_key_at_a_time(self):
+        # given a pull of one LastK
+        sql = self._sql(["n", "recent_merchants_3h"])
+
+        # then only that key is read: the whole map dwarfs the feature columns
+        assert sql.count('"json_features"') == 1
+        assert """"json_features"['recent_merchants_3h']""" in sql
+
+    def test_types_come_from_the_aggregated_source_field(self):
+        # given a pipeline taking Last and LastK of a dataset's fields
+        from thyme.dataset import _DATASET_REGISTRY, _PIPELINE_REGISTRY
+
+        _DATASET_REGISTRY["Payments"] = {"name": "Payments", "fields": [
+            {"name": "merchant_id", "type": "str"}, {"name": "amount", "type": "float"},
+        ]}
+        _PIPELINE_REGISTRY[("CardStats", "p")] = {
+            "input_datasets": ["Payments"],
+            "output_dataset": "CardStats",
+            "operators": [{"aggregate": {"keys": ["card_id"], "specs": [
+                {"type": "last_k", "field": "merchant_id", "window": "3h", "output_field": "recent"},
+                {"type": "last", "field": "amount", "window": "1d", "output_field": "last_amount"},
+                {"type": "last", "field": "assigned_later", "window": "1d", "output_field": "unknown"},
+                {"type": "count", "field": "amount", "window": "1h", "output_field": "n_1h"},
+            ]}}],
+        }
+        try:
+            # then a LastK is a list of the field's type, a Last one value, and a
+            # field the pipeline made itself stays JSON text
+            assert latest_columns("CardStats") == {
+                "recent": "VARCHAR[]", "last_amount": "DOUBLE", "unknown": None,
+            }
+        finally:
+            del _PIPELINE_REGISTRY[("CardStats", "p")]
+            del _DATASET_REGISTRY["Payments"]
+
+    def test_stored_columns_include_a_last_k_whatever_its_dtype(self):
+        # given a featureset reading a LastK, whose dtype says only "list"
+        from thyme.dataset import _PIPELINE_REGISTRY
+
+        _PIPELINE_REGISTRY[("UserStats", "p")] = {
+            "input_datasets": [],
+            "output_dataset": "UserStats",
+            "operators": [{"aggregate": {"keys": ["user_id"], "specs": [
+                {"type": "last_k", "field": "merchant_id", "window": "3h", "output_field": "recent"},
+            ]}}],
+        }
+        meta = {
+            "name": "UserFeatures",
+            "features": [{"name": "recent", "dtype": "list"}],
+            "extractors": [{
+                "kind": "LOOKUP", "outputs": ["recent"],
+                "lookup_info": {"dataset_name": "UserStats", "field_name": "recent"},
+            }],
+        }
+        try:
+            assert stored_columns(meta) == {"UserStats": [("recent", "recent")]}
+        finally:
+            del _PIPELINE_REGISTRY[("UserStats", "p")]
