@@ -7,7 +7,7 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class StateValue(_message.Message):
-    __slots__ = ("features", "dimensions", "timestamp", "op", "before", "after", "sketches", "json_features")
+    __slots__ = ("features", "dimensions", "timestamp", "op", "before", "after", "sketches", "json_features", "shares")
     class FeaturesEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -50,6 +50,13 @@ class StateValue(_message.Message):
         key: str
         value: str
         def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    class SharesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: AccumulatorValue
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[AccumulatorValue, _Mapping]] = ...) -> None: ...
     FEATURES_FIELD_NUMBER: _ClassVar[int]
     DIMENSIONS_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
@@ -58,6 +65,7 @@ class StateValue(_message.Message):
     AFTER_FIELD_NUMBER: _ClassVar[int]
     SKETCHES_FIELD_NUMBER: _ClassVar[int]
     JSON_FEATURES_FIELD_NUMBER: _ClassVar[int]
+    SHARES_FIELD_NUMBER: _ClassVar[int]
     features: _containers.ScalarMap[str, float]
     dimensions: _containers.ScalarMap[str, str]
     timestamp: str
@@ -66,7 +74,8 @@ class StateValue(_message.Message):
     after: _containers.ScalarMap[str, float]
     sketches: _containers.ScalarMap[str, bytes]
     json_features: _containers.ScalarMap[str, str]
-    def __init__(self, features: _Optional[_Mapping[str, float]] = ..., dimensions: _Optional[_Mapping[str, str]] = ..., timestamp: _Optional[str] = ..., op: _Optional[str] = ..., before: _Optional[_Mapping[str, float]] = ..., after: _Optional[_Mapping[str, float]] = ..., sketches: _Optional[_Mapping[str, bytes]] = ..., json_features: _Optional[_Mapping[str, str]] = ...) -> None: ...
+    shares: _containers.MessageMap[str, AccumulatorValue]
+    def __init__(self, features: _Optional[_Mapping[str, float]] = ..., dimensions: _Optional[_Mapping[str, str]] = ..., timestamp: _Optional[str] = ..., op: _Optional[str] = ..., before: _Optional[_Mapping[str, float]] = ..., after: _Optional[_Mapping[str, float]] = ..., sketches: _Optional[_Mapping[str, bytes]] = ..., json_features: _Optional[_Mapping[str, str]] = ..., shares: _Optional[_Mapping[str, AccumulatorValue]] = ...) -> None: ...
 
 class LatestEntry(_message.Message):
     __slots__ = ("event_ts", "seq", "value_json")
@@ -117,6 +126,46 @@ class DeleteQueueEntry(_message.Message):
     is_minmax: bool
     seq: int
     def __init__(self, value: _Optional[float] = ..., is_minmax: bool = ..., seq: _Optional[int] = ...) -> None: ...
+
+class WindowContribution(_message.Message):
+    __slots__ = ("agg_index", "value")
+    AGG_INDEX_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    agg_index: int
+    value: float
+    def __init__(self, agg_index: _Optional[int] = ..., value: _Optional[float] = ...) -> None: ...
+
+class WindowLogEntry(_message.Message):
+    __slots__ = ("contributions",)
+    CONTRIBUTIONS_FIELD_NUMBER: _ClassVar[int]
+    contributions: _containers.RepeatedCompositeFieldContainer[WindowContribution]
+    def __init__(self, contributions: _Optional[_Iterable[_Union[WindowContribution, _Mapping]]] = ...) -> None: ...
+
+class SpecWindow(_message.Message):
+    __slots__ = ("agg_index", "window_us", "sum", "count", "seen")
+    AGG_INDEX_FIELD_NUMBER: _ClassVar[int]
+    WINDOW_US_FIELD_NUMBER: _ClassVar[int]
+    SUM_FIELD_NUMBER: _ClassVar[int]
+    COUNT_FIELD_NUMBER: _ClassVar[int]
+    SEEN_FIELD_NUMBER: _ClassVar[int]
+    agg_index: int
+    window_us: int
+    sum: float
+    count: int
+    seen: bool
+    def __init__(self, agg_index: _Optional[int] = ..., window_us: _Optional[int] = ..., sum: _Optional[float] = ..., count: _Optional[int] = ..., seen: bool = ...) -> None: ...
+
+class RowAccumulator(_message.Message):
+    __slots__ = ("as_of_us", "log_floor_us", "specs", "stale_rows_until_us")
+    AS_OF_US_FIELD_NUMBER: _ClassVar[int]
+    LOG_FLOOR_US_FIELD_NUMBER: _ClassVar[int]
+    SPECS_FIELD_NUMBER: _ClassVar[int]
+    STALE_ROWS_UNTIL_US_FIELD_NUMBER: _ClassVar[int]
+    as_of_us: int
+    log_floor_us: int
+    specs: _containers.RepeatedCompositeFieldContainer[SpecWindow]
+    stale_rows_until_us: int
+    def __init__(self, as_of_us: _Optional[int] = ..., log_floor_us: _Optional[int] = ..., specs: _Optional[_Iterable[_Union[SpecWindow, _Mapping]]] = ..., stale_rows_until_us: _Optional[int] = ...) -> None: ...
 
 class StateWrite(_message.Message):
     __slots__ = ("entity_type", "entity_id", "ts_bytes", "value", "is_raw_key")
