@@ -26,7 +26,7 @@ class DecisionSpec(_message.Message):
 
 class Question(_message.Message):
     __slots__ = ("choice", "score", "noul")
-    class Option(_message.Message):
+    class ChoiceOption(_message.Message):
         __slots__ = ("key", "description")
         KEY_FIELD_NUMBER: _ClassVar[int]
         DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
@@ -38,8 +38,8 @@ class Question(_message.Message):
         INSTRUCTIONS_FIELD_NUMBER: _ClassVar[int]
         OPTIONS_FIELD_NUMBER: _ClassVar[int]
         instructions: str
-        options: _containers.RepeatedCompositeFieldContainer[Question.Option]
-        def __init__(self, instructions: _Optional[str] = ..., options: _Optional[_Iterable[_Union[Question.Option, _Mapping]]] = ...) -> None: ...
+        options: _containers.RepeatedCompositeFieldContainer[Question.ChoiceOption]
+        def __init__(self, instructions: _Optional[str] = ..., options: _Optional[_Iterable[_Union[Question.ChoiceOption, _Mapping]]] = ...) -> None: ...
     class Score(_message.Message):
         __slots__ = ("instructions", "levels")
         INSTRUCTIONS_FIELD_NUMBER: _ClassVar[int]
