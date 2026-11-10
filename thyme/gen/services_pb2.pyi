@@ -1,6 +1,7 @@
 from thyme import dataset_pb2 as _dataset_pb2
 from thyme import featureset_pb2 as _featureset_pb2
 from thyme import connector_pb2 as _connector_pb2
+from thyme import provider_pb2 as _provider_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -10,7 +11,7 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class CommitRequest(_message.Message):
-    __slots__ = ("message", "datasets", "pipelines", "featuresets", "sources", "allow_retention_narrowing", "backfill")
+    __slots__ = ("message", "datasets", "pipelines", "featuresets", "sources", "allow_retention_narrowing", "backfill", "providers")
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     DATASETS_FIELD_NUMBER: _ClassVar[int]
     PIPELINES_FIELD_NUMBER: _ClassVar[int]
@@ -18,6 +19,7 @@ class CommitRequest(_message.Message):
     SOURCES_FIELD_NUMBER: _ClassVar[int]
     ALLOW_RETENTION_NARROWING_FIELD_NUMBER: _ClassVar[int]
     BACKFILL_FIELD_NUMBER: _ClassVar[int]
+    PROVIDERS_FIELD_NUMBER: _ClassVar[int]
     message: str
     datasets: _containers.RepeatedCompositeFieldContainer[_dataset_pb2.Dataset]
     pipelines: _containers.RepeatedCompositeFieldContainer[_dataset_pb2.Pipeline]
@@ -25,7 +27,8 @@ class CommitRequest(_message.Message):
     sources: _containers.RepeatedCompositeFieldContainer[_connector_pb2.Source]
     allow_retention_narrowing: bool
     backfill: bool
-    def __init__(self, message: _Optional[str] = ..., datasets: _Optional[_Iterable[_Union[_dataset_pb2.Dataset, _Mapping]]] = ..., pipelines: _Optional[_Iterable[_Union[_dataset_pb2.Pipeline, _Mapping]]] = ..., featuresets: _Optional[_Iterable[_Union[_featureset_pb2.Featureset, _Mapping]]] = ..., sources: _Optional[_Iterable[_Union[_connector_pb2.Source, _Mapping]]] = ..., allow_retention_narrowing: bool = ..., backfill: bool = ...) -> None: ...
+    providers: _containers.RepeatedCompositeFieldContainer[_provider_pb2.Provider]
+    def __init__(self, message: _Optional[str] = ..., datasets: _Optional[_Iterable[_Union[_dataset_pb2.Dataset, _Mapping]]] = ..., pipelines: _Optional[_Iterable[_Union[_dataset_pb2.Pipeline, _Mapping]]] = ..., featuresets: _Optional[_Iterable[_Union[_featureset_pb2.Featureset, _Mapping]]] = ..., sources: _Optional[_Iterable[_Union[_connector_pb2.Source, _Mapping]]] = ..., allow_retention_narrowing: bool = ..., backfill: bool = ..., providers: _Optional[_Iterable[_Union[_provider_pb2.Provider, _Mapping]]] = ...) -> None: ...
 
 class CommitResponse(_message.Message):
     __slots__ = ("commit_id", "datasets_count", "pipelines_count", "featuresets_count", "jobs_created", "topics_created")

@@ -7,6 +7,9 @@ PROTO_FILES := \
 	thyme/expr.proto \
 	thyme/metadata.proto \
 	thyme/connector.proto \
+	thyme/decision.proto \
+	thyme/policy.proto \
+	thyme/provider.proto \
 	thyme/dataset.proto \
 	thyme/featureset.proto \
 	thyme/services.proto \

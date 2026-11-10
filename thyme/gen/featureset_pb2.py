@@ -26,23 +26,25 @@ from thyme.gen import schema_pb2 as thyme_dot_schema__pb2
 from thyme.gen import pycode_pb2 as thyme_dot_pycode__pb2
 from thyme.gen import expr_pb2 as thyme_dot_expr__pb2
 from thyme.gen import metadata_pb2 as thyme_dot_metadata__pb2
+from thyme.gen import decision_pb2 as thyme_dot_decision__pb2
+from thyme.gen import policy_pb2 as thyme_dot_policy__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x16thyme/featureset.proto\x12\x05thyme\x1a\x12thyme/schema.proto\x1a\x12thyme/pycode.proto\x1a\x10thyme/expr.proto\x1a\x14thyme/metadata.proto\"\xaa\x01\n\nFeatureset\x12\x0c\n\x04name\x18\x01 \x01(\t\x12 \n\x08\x66\x65\x61tures\x18\x02 \x03(\x0b\x32\x0e.thyme.Feature\x12$\n\nextractors\x18\x03 \x03(\x0b\x32\x10.thyme.Extractor\x12\x1d\n\x06pycode\x18\x04 \x01(\x0b\x32\r.thyme.PyCode\x12\'\n\x08metadata\x18\x05 \x01(\x0b\x32\x15.thyme.EntityMetadata\"\x80\x01\n\x07\x46\x65\x61ture\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x1e\n\x05\x64type\x18\x02 \x01(\x0b\x32\x0f.thyme.DataType\x12\x0f\n\x07request\x18\x04 \x01(\x08\x12$\n\x07\x64\x65\x66\x61ult\x18\x05 \x01(\x0b\x32\x0e.thyme.LiteralH\x00\x88\x01\x01\x42\n\n\x08_defaultJ\x04\x08\x03\x10\x04\"\xd9\x01\n\tExtractor\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0e\n\x06inputs\x18\x02 \x03(\t\x12\x0f\n\x07outputs\x18\x03 \x03(\t\x12\x0c\n\x04\x64\x65ps\x18\x04 \x03(\t\x12\x1d\n\x06pycode\x18\x05 \x01(\x0b\x32\r.thyme.PyCode\x12\x0f\n\x07version\x18\x06 \x01(\x05\x12\"\n\x04kind\x18\x07 \x01(\x0e\x32\x14.thyme.ExtractorKind\x12+\n\x0blookup_info\x18\x08 \x01(\x0b\x32\x11.thyme.LookupInfoH\x00\x88\x01\x01\x42\x0e\n\x0c_lookup_info\"h\n\nLookupInfo\x12\x14\n\x0c\x64\x61taset_name\x18\x01 \x01(\t\x12\x12\n\nfield_name\x18\x02 \x01(\t\x12$\n\x07\x64\x65\x66\x61ult\x18\x03 \x01(\x0b\x32\x0e.thyme.LiteralH\x00\x88\x01\x01\x42\n\n\x08_default*H\n\rExtractorKind\x12\x1e\n\x1a\x45XTRACTOR_KIND_UNSPECIFIED\x10\x00\x12\x0b\n\x07PY_FUNC\x10\x01\x12\n\n\x06LOOKUP\x10\x02\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x16thyme/featureset.proto\x12\x05thyme\x1a\x12thyme/schema.proto\x1a\x12thyme/pycode.proto\x1a\x10thyme/expr.proto\x1a\x14thyme/metadata.proto\x1a\x14thyme/decision.proto\x1a\x12thyme/policy.proto\"\xcb\x01\n\nFeatureset\x12\x0c\n\x04name\x18\x01 \x01(\t\x12 \n\x08\x66\x65\x61tures\x18\x02 \x03(\x0b\x32\x0e.thyme.Feature\x12$\n\nextractors\x18\x03 \x03(\x0b\x32\x10.thyme.Extractor\x12\x1d\n\x06pycode\x18\x04 \x01(\x0b\x32\r.thyme.PyCode\x12\'\n\x08metadata\x18\x05 \x01(\x0b\x32\x15.thyme.EntityMetadata\x12\x1f\n\x08policies\x18\x06 \x03(\x0b\x32\r.thyme.Policy\"\xaa\x01\n\x07\x46\x65\x61ture\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x1e\n\x05\x64type\x18\x02 \x01(\x0b\x32\x0f.thyme.DataType\x12\x0f\n\x07request\x18\x04 \x01(\x08\x12$\n\x07\x64\x65\x66\x61ult\x18\x05 \x01(\x0b\x32\x0e.thyme.LiteralH\x00\x88\x01\x01\x12\x18\n\x0b\x64\x65scription\x18\x06 \x01(\tH\x01\x88\x01\x01\x42\n\n\x08_defaultB\x0e\n\x0c_descriptionJ\x04\x08\x03\x10\x04\"\x92\x02\n\tExtractor\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x0e\n\x06inputs\x18\x02 \x03(\t\x12\x0f\n\x07outputs\x18\x03 \x03(\t\x12\x0c\n\x04\x64\x65ps\x18\x04 \x03(\t\x12\x1d\n\x06pycode\x18\x05 \x01(\x0b\x32\r.thyme.PyCode\x12\x0f\n\x07version\x18\x06 \x01(\x05\x12\"\n\x04kind\x18\x07 \x01(\x0e\x32\x14.thyme.ExtractorKind\x12+\n\x0blookup_info\x18\x08 \x01(\x0b\x32\x11.thyme.LookupInfoH\x00\x88\x01\x01\x12*\n\x08\x64\x65\x63ision\x18\t \x01(\x0b\x32\x13.thyme.DecisionSpecH\x01\x88\x01\x01\x42\x0e\n\x0c_lookup_infoB\x0b\n\t_decision\"h\n\nLookupInfo\x12\x14\n\x0c\x64\x61taset_name\x18\x01 \x01(\t\x12\x12\n\nfield_name\x18\x02 \x01(\t\x12$\n\x07\x64\x65\x66\x61ult\x18\x03 \x01(\x0b\x32\x0e.thyme.LiteralH\x00\x88\x01\x01\x42\n\n\x08_default*V\n\rExtractorKind\x12\x1e\n\x1a\x45XTRACTOR_KIND_UNSPECIFIED\x10\x00\x12\x0b\n\x07PY_FUNC\x10\x01\x12\n\n\x06LOOKUP\x10\x02\x12\x0c\n\x08\x44\x45\x43ISION\x10\x03\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'thyme.featureset_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_EXTRACTORKIND']._serialized_start=743
-  _globals['_EXTRACTORKIND']._serialized_end=815
-  _globals['_FEATURESET']._serialized_start=114
-  _globals['_FEATURESET']._serialized_end=284
-  _globals['_FEATURE']._serialized_start=287
-  _globals['_FEATURE']._serialized_end=415
-  _globals['_EXTRACTOR']._serialized_start=418
-  _globals['_EXTRACTOR']._serialized_end=635
-  _globals['_LOOKUPINFO']._serialized_start=637
-  _globals['_LOOKUPINFO']._serialized_end=741
+  _globals['_EXTRACTORKIND']._serialized_start=917
+  _globals['_EXTRACTORKIND']._serialized_end=1003
+  _globals['_FEATURESET']._serialized_start=156
+  _globals['_FEATURESET']._serialized_end=359
+  _globals['_FEATURE']._serialized_start=362
+  _globals['_FEATURE']._serialized_end=532
+  _globals['_EXTRACTOR']._serialized_start=535
+  _globals['_EXTRACTOR']._serialized_end=809
+  _globals['_LOOKUPINFO']._serialized_start=811
+  _globals['_LOOKUPINFO']._serialized_end=915
 # @@protoc_insertion_point(module_scope)
