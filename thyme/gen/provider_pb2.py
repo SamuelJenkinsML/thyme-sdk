@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from thyme.gen import connector_pb2 as thyme_dot_connector__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14thyme/provider.proto\x12\x05thyme\x1a\x15thyme/connector.proto\"\xdc\x02\n\x08Provider\x12\x0c\n\x04name\x18\x01 \x01(\t\x12&\n\x06\x66ormat\x18\x02 \x01(\x0e\x32\x16.thyme.Provider.Format\x12\x10\n\x08\x62\x61se_url\x18\x03 \x01(\t\x12!\n\x07\x61pi_key\x18\x04 \x01(\x0b\x32\x10.thyme.SecretRef\x12\x18\n\x10rate_limit_per_s\x18\x05 \x01(\x01\x12\x14\n\x07samples\x18\x06 \x01(\rH\x00\x88\x01\x01\x12!\n\x14input_price_per_mtok\x18\x07 \x01(\x01H\x01\x88\x01\x01\x12\"\n\x15output_price_per_mtok\x18\x08 \x01(\x01H\x02\x88\x01\x01\"/\n\x06\x46ormat\x12\x16\n\x12\x46ORMAT_UNSPECIFIED\x10\x00\x12\r\n\tSYSTEMONE\x10\x01\x42\n\n\x08_samplesB\x17\n\x15_input_price_per_mtokB\x18\n\x16_output_price_per_mtokb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14thyme/provider.proto\x12\x05thyme\x1a\x15thyme/connector.proto\"\xf6\x02\n\x08Provider\x12\x0c\n\x04name\x18\x01 \x01(\t\x12&\n\x06\x66ormat\x18\x02 \x01(\x0e\x32\x16.thyme.Provider.Format\x12\x10\n\x08\x62\x61se_url\x18\x03 \x01(\t\x12!\n\x07\x61pi_key\x18\x04 \x01(\x0b\x32\x10.thyme.SecretRef\x12\x1d\n\x10rate_limit_per_s\x18\x05 \x01(\x01H\x00\x88\x01\x01\x12\x14\n\x07samples\x18\x06 \x01(\rH\x01\x88\x01\x01\x12!\n\x14input_price_per_mtok\x18\x07 \x01(\x01H\x02\x88\x01\x01\x12\"\n\x15output_price_per_mtok\x18\x08 \x01(\x01H\x03\x88\x01\x01\"/\n\x06\x46ormat\x12\x16\n\x12\x46ORMAT_UNSPECIFIED\x10\x00\x12\r\n\tSYSTEMONE\x10\x01\x42\x13\n\x11_rate_limit_per_sB\n\n\x08_samplesB\x17\n\x15_input_price_per_mtokB\x18\n\x16_output_price_per_mtokb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,7 +33,7 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'thyme.provider_pb2', _globa
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_PROVIDER']._serialized_start=55
-  _globals['_PROVIDER']._serialized_end=403
-  _globals['_PROVIDER_FORMAT']._serialized_start=293
-  _globals['_PROVIDER_FORMAT']._serialized_end=340
+  _globals['_PROVIDER']._serialized_end=429
+  _globals['_PROVIDER_FORMAT']._serialized_start=298
+  _globals['_PROVIDER_FORMAT']._serialized_end=345
 # @@protoc_insertion_point(module_scope)

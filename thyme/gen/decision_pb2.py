@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14thyme/decision.proto\x12\x05thyme\"\xad\x01\n\x0c\x44\x65\x63isionSpec\x12\x10\n\x08provider\x18\x01 \x01(\t\x12\r\n\x05model\x18\x02 \x01(\t\x12\x13\n\x0b\x61llow_alias\x18\x03 \x01(\x08\x12\r\n\x05state\x18\x04 \x03(\t\x12!\n\x08question\x18\x05 \x01(\x0b\x32\x0f.thyme.Question\x12\x13\n\x0b\x64\x65\x61\x64line_ms\x18\x06 \x01(\r\x12\x14\n\x07retries\x18\x07 \x01(\rH\x00\x88\x01\x01\x42\n\n\x08_retries\"\xcc\x02\n\x08Question\x12(\n\x06\x63hoice\x18\x01 \x01(\x0b\x32\x16.thyme.Question.ChoiceH\x00\x12&\n\x05score\x18\x02 \x01(\x0b\x32\x15.thyme.Question.ScoreH\x00\x12$\n\x04noul\x18\x03 \x01(\x0b\x32\x14.thyme.Question.NoulH\x00\x1a*\n\x06Option\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x1aG\n\x06\x43hoice\x12\x14\n\x0cinstructions\x18\x01 \x01(\t\x12\'\n\x07options\x18\x02 \x03(\x0b\x32\x16.thyme.Question.Option\x1a-\n\x05Score\x12\x14\n\x0cinstructions\x18\x01 \x01(\t\x12\x0e\n\x06levels\x18\x02 \x03(\t\x1a\x1c\n\x04Noul\x12\x14\n\x0cinstructions\x18\x01 \x01(\tB\x06\n\x04kindb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14thyme/decision.proto\x12\x05thyme\"\xc2\x01\n\x0c\x44\x65\x63isionSpec\x12\x10\n\x08provider\x18\x01 \x01(\t\x12\r\n\x05model\x18\x02 \x01(\t\x12\x13\n\x0b\x61llow_alias\x18\x03 \x01(\x08\x12\r\n\x05state\x18\x04 \x03(\t\x12!\n\x08question\x18\x05 \x01(\x0b\x32\x0f.thyme.Question\x12\x18\n\x0b\x64\x65\x61\x64line_ms\x18\x06 \x01(\rH\x00\x88\x01\x01\x12\x14\n\x07retries\x18\x07 \x01(\rH\x01\x88\x01\x01\x42\x0e\n\x0c_deadline_msB\n\n\x08_retries\"\xd8\x02\n\x08Question\x12(\n\x06\x63hoice\x18\x01 \x01(\x0b\x32\x16.thyme.Question.ChoiceH\x00\x12&\n\x05score\x18\x02 \x01(\x0b\x32\x15.thyme.Question.ScoreH\x00\x12$\n\x04noul\x18\x03 \x01(\x0b\x32\x14.thyme.Question.NoulH\x00\x1a\x30\n\x0c\x43hoiceOption\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x1aM\n\x06\x43hoice\x12\x14\n\x0cinstructions\x18\x01 \x01(\t\x12-\n\x07options\x18\x02 \x03(\x0b\x32\x1c.thyme.Question.ChoiceOption\x1a-\n\x05Score\x12\x14\n\x0cinstructions\x18\x01 \x01(\t\x12\x0e\n\x06levels\x18\x02 \x03(\t\x1a\x1c\n\x04Noul\x12\x14\n\x0cinstructions\x18\x01 \x01(\tB\x06\n\x04kindb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,15 +32,15 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'thyme.decision_pb2', _globa
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_DECISIONSPEC']._serialized_start=32
-  _globals['_DECISIONSPEC']._serialized_end=205
-  _globals['_QUESTION']._serialized_start=208
-  _globals['_QUESTION']._serialized_end=540
-  _globals['_QUESTION_OPTION']._serialized_start=340
-  _globals['_QUESTION_OPTION']._serialized_end=382
-  _globals['_QUESTION_CHOICE']._serialized_start=384
-  _globals['_QUESTION_CHOICE']._serialized_end=455
-  _globals['_QUESTION_SCORE']._serialized_start=457
-  _globals['_QUESTION_SCORE']._serialized_end=502
-  _globals['_QUESTION_NOUL']._serialized_start=504
-  _globals['_QUESTION_NOUL']._serialized_end=532
+  _globals['_DECISIONSPEC']._serialized_end=226
+  _globals['_QUESTION']._serialized_start=229
+  _globals['_QUESTION']._serialized_end=573
+  _globals['_QUESTION_CHOICEOPTION']._serialized_start=361
+  _globals['_QUESTION_CHOICEOPTION']._serialized_end=409
+  _globals['_QUESTION_CHOICE']._serialized_start=411
+  _globals['_QUESTION_CHOICE']._serialized_end=488
+  _globals['_QUESTION_SCORE']._serialized_start=490
+  _globals['_QUESTION_SCORE']._serialized_end=535
+  _globals['_QUESTION_NOUL']._serialized_start=537
+  _globals['_QUESTION_NOUL']._serialized_end=565
 # @@protoc_insertion_point(module_scope)
