@@ -187,16 +187,17 @@ def commit(
         try:
             from thyme.compiler import compile_commit_request
             from thyme.dataset import get_registered_pipelines
-            # Raw pipelines (proto Predicate/Derivation objects intact) — the
-            # wired form in `payload["pipelines"]` has had aggregate/filter
-            # predicates flattened to dicts for JSON encoding, which the proto
-            # compiler (which expects real Predicate messages) can't accept.
+            from thyme.featureset import get_registered_featuresets
+            # Raw pipelines and featuresets (proto Predicate/Derivation objects
+            # intact) — the wired form in `payload` has had predicates flattened
+            # to dicts for JSON encoding, which the proto compiler (which
+            # expects real Predicate messages) can't accept.
             raw_pipelines = get_registered_pipelines()
             proto_msg = compile_commit_request(
                 message="",
                 datasets=payload["datasets"],
                 pipelines=raw_pipelines,
-                featuresets=payload["featuresets"],
+                featuresets=list(get_registered_featuresets().values()),
                 sources=payload["sources"],
                 allow_retention_narrowing=allow_retention_narrowing,
                 backfill=not no_backfill,
