@@ -322,13 +322,19 @@ def _synthesize_decisions(
 ) -> tuple[list[dict], list[dict]]:
     """One DECISION extractor per judgment, and the policies, with the
     providers the judgments name."""
-    from thyme.decision import EXTRACTOR_KIND_DECISION, JudgmentDescriptor, PolicyDescriptor
+    from thyme.decision import (
+        EXTRACTOR_KIND_DECISION,
+        JudgmentDescriptor,
+        PolicyDescriptor,
+        unique_providers,
+    )
 
     names = {id(desc): name for name, desc in feature_descriptors.items()}
     policies: list[dict] = []
-    providers: dict[str, dict] = {}
+    providers: list[dict] = []
     for attr_name, desc in feature_descriptors.items():
         if isinstance(desc, JudgmentDescriptor):
+            desc.check_dtype(attr_name, desc.dtype)
             extractors.append({
                 "name": f"_thyme_decision_{attr_name}",
                 "deps": [],
@@ -338,10 +344,10 @@ def _synthesize_decisions(
                 "kind": EXTRACTOR_KIND_DECISION,
                 "decision": desc.decision_spec(names),
             })
-            providers[desc.provider.name] = desc.provider.to_dict()
+            providers.append(desc.provider.to_dict())
         elif isinstance(desc, PolicyDescriptor):
             policies.append(desc.policy_spec(attr_name))
-    return policies, list(providers.values())
+    return policies, unique_providers(providers)
 
 
 def extractor(func: Optional[Callable] = None, *, deps: Optional[List[Any]] = None, version: int = 1):

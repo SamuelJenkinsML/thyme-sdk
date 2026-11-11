@@ -222,12 +222,10 @@ def _to_featureset(fs: dict) -> FeaturesetDef:
 
 
 def _to_policy(policy: dict) -> dict:
-    rules = []
-    for rule in policy["rules"]:
-        entry = {"label": rule["label"]}
-        if rule.get("when") is not None:
-            entry["when"] = proto_to_wire(rule["when"])
-        rules.append(entry)
+    rules = [
+        {**rule, "when": proto_to_wire(rule["when"])} if "when" in rule else rule
+        for rule in policy["rules"]
+    ]
     return {**policy, "rules": rules}
 
 

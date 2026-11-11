@@ -33,7 +33,7 @@ def card_checkout():
         card_id: str = feature()
         txn_count_5m: int = feature(request=True, description="Payments by this card in the last 5 minutes")
         amount: float = feature(request=True, description="Amount of this payment")
-        risk: dict = judge.choice(
+        risk: str = judge.choice(
             "How risky is this payment?",
             RISK_OPTIONS,
             state=[txn_count_5m, amount],
@@ -184,3 +184,32 @@ def test_a_policy_needs_a_rule_and_a_fallback():
         policy(Rule("approve"), fallback="")
     with pytest.raises(ValueError, match="at least one rule"):
         policy(fallback="step_up")
+
+
+def test_a_judgment_is_annotated_with_its_value_type():
+    # Given a noul annotated as str, when the featureset is declared, then it says what to write
+    with pytest.raises(TypeError, match="Annotate it 'card_testing: float'"):
+
+        @featureset
+        class Wrong:
+            amount: float = feature(request=True, description="Amount")
+            card_testing: str = judge.noul("Card testing", state=["amount"], provider=JEV, model="jev-1.14.0")
+
+
+def test_two_providers_with_one_name_in_one_featureset_are_refused():
+    # Given two judgments in one featureset whose providers share a name
+    local = Provider("jev", base_url="http://localhost:8098")
+
+    # When it is declared, then it is refused rather than one silently winning
+    with pytest.raises(ValueError, match="two different providers are named 'jev'"):
+
+        @featureset
+        class Mixed:
+            amount: float = feature(request=True, description="Amount")
+            a: float = judge.noul("A", state=["amount"], provider=JEV, model="jev-1.14.0")
+            b: float = judge.noul("B", state=["amount"], provider=local, model="jev-1.14.0")
+
+
+def test_a_literal_provider_key_is_refused():
+    with pytest.raises(TypeError, match="Secret"):
+        Provider("jev", base_url="https://api.jev.example", api_key="sk-123")

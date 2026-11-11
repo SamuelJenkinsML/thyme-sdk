@@ -75,6 +75,13 @@ class Provider:
     input_price_per_mtok: Optional[float] = None
     output_price_per_mtok: Optional[float] = None
 
+    def __post_init__(self):
+        if self.api_key is not None and not isinstance(self.api_key, Secret):
+            raise TypeError(
+                f"Provider '{self.name}' api_key must be a Secret, so the key never sits in "
+                "committed code. Pass api_key=Secret(env=\"JEV_API_KEY\")."
+            )
+
     def to_dict(self) -> dict:
         out: dict[str, Any] = {"name": self.name, "format": "systemone", "base_url": self.base_url}
         if self.api_key is not None:
@@ -84,6 +91,12 @@ class Provider:
             if value is not None:
                 out[key] = value
         return out
+
+
+# The feature's value: the chosen option, the score, or the probability.
+# The probabilities of a choice are in the response's judgments and in the
+# policy's columns, never in the feature.
+_VALUE_DTYPES = {"choice": "str", "score": "float", "noul": "float"}
 
 
 class JudgmentDescriptor(FeatureDescriptor):
@@ -107,7 +120,10 @@ class JudgmentDescriptor(FeatureDescriptor):
                 "allow_alias=True."
             )
         if not state:
-            raise ValueError("a judgment needs at least one state feature")
+            raise ValueError(
+                "a judgment needs at least one state feature. Pass state=[...] with the "
+                "features the model reads, each declared with a description."
+            )
         super().__init__(description=description)
         self.question = question
         self.state = list(state)
@@ -116,6 +132,14 @@ class JudgmentDescriptor(FeatureDescriptor):
         self.allow_alias = allow_alias
         self.deadline_ms = deadline_ms
         self.retries = retries
+
+    def check_dtype(self, feature_name: str, dtype: str) -> None:
+        expected = _VALUE_DTYPES[self.question["type"]]
+        if dtype != expected:
+            raise TypeError(
+                f"judgment '{feature_name}' is a {self.question['type']}, whose value is a "
+                f"{expected}; it is annotated {dtype}. Annotate it '{feature_name}: {expected}'."
+            )
 
     def decision_spec(self, names: dict[int, str]) -> dict:
         spec: dict[str, Any] = {
@@ -165,8 +189,9 @@ class judge:
         retries: Optional[int] = None,
         description: Optional[str] = None,
     ) -> Any:
-        """Pick one of ``options`` (key to meaning). Rules read each option's
-        probability as ``col("<feature>.<key>")``."""
+        """Pick one of ``options`` (key to meaning). The feature is the chosen
+        key, a ``str``; rules read each option's probability as
+        ``col("<feature>.<key>")``."""
         question = {"type": "choice", "instructions": instructions, "criteria": dict(options)}
         return JudgmentDescriptor(question, state, provider, model, allow_alias, deadline_ms, retries, description)
 
@@ -217,9 +242,15 @@ class PolicyDescriptor(FeatureDescriptor):
 
     def __init__(self, rules: Sequence[Rule], fallback: str, version: int, description: Optional[str]):
         if not rules:
-            raise ValueError("a policy needs at least one rule")
+            raise ValueError(
+                "a policy needs at least one rule. Pass Rule(label, when=...) for each "
+                "action, and a last Rule(label) with no condition if one should always apply."
+            )
         if not fallback:
-            raise ValueError("a policy needs a fallback: the action when a judgment it reads fails")
+            raise ValueError(
+                "a policy needs a fallback: the action when a judgment it reads fails. "
+                "Pass fallback=\"step_up\" or another safe action."
+            )
         super().__init__(description=description)
         self.rules = list(rules)
         self.fallback = fallback
@@ -245,15 +276,20 @@ def policy(*rules: Rule, fallback: str, version: int = 1, description: Optional[
     return PolicyDescriptor(rules, fallback, version, description)
 
 
+def unique_providers(providers: Sequence[dict]) -> list[dict]:
+    """Each provider once; two different providers with one name are refused,
+    because both judgments would be sent to whichever came last."""
+    by_name: dict[str, dict] = {}
+    for provider in providers:
+        seen = by_name.setdefault(provider["name"], provider)
+        if seen != provider:
+            raise ValueError(
+                f"two different providers are named '{provider['name']}'. "
+                "Define the Provider once and use it in every judgment."
+            )
+    return list(by_name.values())
+
+
 def collect_providers(featuresets: Sequence[dict]) -> list[dict]:
     """The providers that the featuresets' judgments name, each once."""
-    providers: dict[str, dict] = {}
-    for fs in featuresets:
-        for provider in fs.get("providers", []):
-            seen = providers.setdefault(provider["name"], provider)
-            if seen != provider:
-                raise ValueError(
-                    f"two different providers are named '{provider['name']}'; "
-                    "define the Provider once and use it in every judgment"
-                )
-    return list(providers.values())
+    return unique_providers([p for fs in featuresets for p in fs.get("providers", [])])
