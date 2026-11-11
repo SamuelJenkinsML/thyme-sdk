@@ -33,11 +33,13 @@ class FeatureDescriptor:
         default: Any = None,
         dtype: Optional[str] = None,
         request: bool = False,
+        description: Optional[str] = None,
     ):
         self.ref = ref
         self.default = default
         self.dtype = dtype
         self.request = request
+        self.description = description
 
 
 class FeatureRef:
@@ -67,16 +69,17 @@ class FeatureRef:
 
 
 @overload
-def feature(*, ref: Field[T], default: T | None = None) -> T: ...
+def feature(*, ref: Field[T], default: T | None = None, description: str | None = None) -> T: ...
 @overload
-def feature(*, request: bool, default: Any = None) -> Any: ...
+def feature(*, request: bool, default: Any = None, description: str | None = None) -> Any: ...
 @overload
-def feature() -> Any: ...
+def feature(*, description: str | None = None) -> Any: ...
 def feature(
     *,
     ref: Field | None = None,
     default: Any = None,
     request: bool = False,
+    description: str | None = None,
 ) -> Any:
     """Declare a feature on a featureset.
 
@@ -93,13 +96,15 @@ def feature(
             state. A request feature has no producer — it cannot also take a
             ``ref`` nor be an extractor output, but it may feed extractors as
             an input (request value + state, combined in one PY_FUNC).
+        description: What the value means. A judgment sends it to the model
+            with the value, so a feature in a judgment's ``state`` needs one.
     """
     if request and ref is not None:
         raise ValueError(
             "feature(request=True) cannot also take ref=...: a request feature "
             "is supplied by the caller, not looked up from a dataset."
         )
-    return FeatureDescriptor(ref=ref, default=default, request=request)
+    return FeatureDescriptor(ref=ref, default=default, request=request, description=description)
 
 
 class Extractor:
@@ -189,6 +194,8 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
                 entry["request"] = True
                 if default.default is not None:
                     entry["default"] = _literal_for_default(default.default)
+            if default.description is not None:
+                entry["description"] = default.description
             features.append(entry)
             feature_descriptors[attr_name] = default
 
@@ -225,6 +232,8 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
             "lookup_info": lookup_info,
             # No source_code — LOOKUP extractors carry no Python body.
         })
+
+    policies, providers = _synthesize_decisions(feature_descriptors, extractors)
 
     # User-defined PY_FUNC extractors. Source captured for these only.
     for attr_name in dir(cls):
@@ -286,6 +295,10 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
         "extractors": extractors,
         "metadata": asdict(metadata),
     }
+    if policies:
+        schema["policies"] = policies
+    if providers:
+        schema["providers"] = providers
     _FEATURESET_REGISTRY[cls.__name__] = schema
     cls._featureset_meta = schema
     cls.__thyme_metadata__ = metadata
@@ -302,6 +315,33 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
             FeatureRef(feat_name, cls.__name__, feat.get("dtype")),
         )
     return cls
+
+
+def _synthesize_decisions(
+    feature_descriptors: dict[str, FeatureDescriptor], extractors: list[dict]
+) -> tuple[list[dict], list[dict]]:
+    """One DECISION extractor per judgment, and the policies, with the
+    providers the judgments name."""
+    from thyme.decision import EXTRACTOR_KIND_DECISION, JudgmentDescriptor, PolicyDescriptor
+
+    names = {id(desc): name for name, desc in feature_descriptors.items()}
+    policies: list[dict] = []
+    providers: dict[str, dict] = {}
+    for attr_name, desc in feature_descriptors.items():
+        if isinstance(desc, JudgmentDescriptor):
+            extractors.append({
+                "name": f"_thyme_decision_{attr_name}",
+                "deps": [],
+                "inputs": [],
+                "outputs": [attr_name],
+                "version": 1,
+                "kind": EXTRACTOR_KIND_DECISION,
+                "decision": desc.decision_spec(names),
+            })
+            providers[desc.provider.name] = desc.provider.to_dict()
+        elif isinstance(desc, PolicyDescriptor):
+            policies.append(desc.policy_spec(attr_name))
+    return policies, list(providers.values())
 
 
 def extractor(func: Optional[Callable] = None, *, deps: Optional[List[Any]] = None, version: int = 1):

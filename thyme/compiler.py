@@ -1,12 +1,16 @@
 """Compiler: converts SDK registry objects to protobuf CommitRequest."""
 from typing import List
 
+from thyme.decision import collect_providers
 from thyme.gen import (
     connector_pb2,
     dataset_pb2,
+    decision_pb2,
     expr_pb2,
     featureset_pb2,
     metadata_pb2,
+    policy_pb2,
+    provider_pb2,
     pycode_pb2,
     schema_pb2,
     services_pb2,
@@ -266,7 +270,60 @@ def compile_pipeline(pipeline_meta: dict) -> dataset_pb2.Pipeline:
 _EXTRACTOR_KIND_MAP = {
     "PY_FUNC": featureset_pb2.PY_FUNC,
     "LOOKUP": featureset_pb2.LOOKUP,
+    "DECISION": featureset_pb2.DECISION,
 }
+
+
+def _question_pb(question: dict) -> decision_pb2.Question:
+    kind = question["type"]
+    if kind == "choice":
+        return decision_pb2.Question(choice=decision_pb2.Question.Choice(
+            instructions=question["instructions"],
+            options=[
+                decision_pb2.Question.ChoiceOption(key=key, description=meaning)
+                for key, meaning in question["criteria"].items()
+            ],
+        ))
+    if kind == "score":
+        return decision_pb2.Question(score=decision_pb2.Question.Score(
+            instructions=question["instructions"], levels=question["levels"],
+        ))
+    return decision_pb2.Question(noul=decision_pb2.Question.Noul(instructions=question["instructions"]))
+
+
+def _decision_pb(spec: dict) -> decision_pb2.DecisionSpec:
+    return decision_pb2.DecisionSpec(
+        provider=spec["provider"],
+        model=spec["model"],
+        allow_alias=spec.get("allow_alias", False),
+        state=spec["state"],
+        question=_question_pb(spec["question"]),
+        deadline_ms=spec.get("deadline_ms"),
+        retries=spec.get("retries"),
+    )
+
+
+def _policy_pb(policy: dict) -> policy_pb2.Policy:
+    return policy_pb2.Policy(
+        output=policy["output"],
+        version=policy["version"],
+        rules=[policy_pb2.Rule(label=r["label"], when=r.get("when")) for r in policy["rules"]],
+        fallback=policy["fallback"],
+    )
+
+
+def compile_provider(provider: dict) -> provider_pb2.Provider:
+    api_key = provider.get("api_key")
+    return provider_pb2.Provider(
+        name=provider["name"],
+        format=provider_pb2.Provider.SYSTEMONE,
+        base_url=provider["base_url"],
+        api_key=_make_secret_ref(api_key) if api_key is not None else None,
+        rate_limit_per_s=provider.get("rate_limit_per_s"),
+        samples=provider.get("samples"),
+        input_price_per_mtok=provider.get("input_price_per_mtok"),
+        output_price_per_mtok=provider.get("output_price_per_mtok"),
+    )
 
 
 def _literal_pb_for_default(value):
@@ -307,6 +364,8 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
             feature_kwargs["request"] = True
             if f.get("default") is not None:
                 feature_kwargs["default"] = _literal_pb_for_default(f.get("default"))
+        if f.get("description") is not None:
+            feature_kwargs["description"] = f["description"]
         features.append(featureset_pb2.Feature(**feature_kwargs))
 
     extractors = []
@@ -339,6 +398,7 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
             version=ext.get("version", 1),
             kind=kind,
             lookup_info=lookup_info_pb,
+            decision=_decision_pb(ext["decision"]) if ext.get("decision") else None,
         ))
 
     return featureset_pb2.Featureset(
@@ -346,6 +406,7 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
         features=features,
         extractors=extractors,
         metadata=_make_metadata(fs_meta.get("metadata")),
+        policies=[_policy_pb(p) for p in fs_meta.get("policies", [])],
     )
 
 
@@ -456,6 +517,7 @@ def compile_commit_request(
         pipelines=[compile_pipeline(p) for p in pipelines],
         featuresets=[compile_featureset(f) for f in featuresets],
         sources=[compile_source(s) for s in sources],
+        providers=[compile_provider(p) for p in collect_providers(featuresets)],
         allow_retention_narrowing=allow_retention_narrowing,
         backfill=backfill,
     )
