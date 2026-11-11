@@ -286,7 +286,7 @@ def _question_pb(question: dict) -> decision_pb2.Question:
         ))
     if kind == "score":
         return decision_pb2.Question(score=decision_pb2.Question.Score(
-            instructions=question["instructions"], levels=question["levels"],
+            instructions=question["instructions"], levels=question["criteria"],
         ))
     return decision_pb2.Question(noul=decision_pb2.Question.Noul(instructions=question["instructions"]))
 

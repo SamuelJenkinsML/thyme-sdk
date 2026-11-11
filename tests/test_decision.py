@@ -213,3 +213,29 @@ def test_two_providers_with_one_name_in_one_featureset_are_refused():
 def test_a_literal_provider_key_is_refused():
     with pytest.raises(TypeError, match="Secret"):
         Provider("jev", base_url="https://api.jev.example", api_key="sk-123")
+
+
+def test_a_score_sends_its_levels_as_the_wire_format_names_them():
+    # Given a score judgment
+    @featureset
+    class Spend:
+        amount: float = feature(request=True, description="Amount")
+        spend_unusual: float = judge.score(
+            "How unusual is this spend?", ["usual", "unusual", "extreme"],
+            state=["amount"], provider=JEV, model="jev-1.14.0",
+        )
+
+    # When it is committed, then the JSON question names the levels `criteria`,
+    # which the definition service and the provider read
+    (fs,) = get_commit_payload()["featuresets"]
+    (score,) = [e for e in fs["extractors"] if e["kind"] == "DECISION"]
+    assert score["decision"]["question"] == {
+        "type": "score",
+        "instructions": "How unusual is this spend?",
+        "criteria": ["usual", "unusual", "extreme"],
+    }
+
+    # And the proto carries them as levels
+    request = compile_commit_request("", [], [], list(get_registered_featuresets().values()), [])
+    (extractor,) = [e for e in request.featuresets[0].extractors if e.HasField("decision")]
+    assert list(extractor.decision.question.score.levels) == ["usual", "unusual", "extreme"]

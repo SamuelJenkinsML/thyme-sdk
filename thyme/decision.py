@@ -209,7 +209,8 @@ class judge:
         description: Optional[str] = None,
     ) -> Any:
         """Rate on ordered ``levels``, lowest first."""
-        question = {"type": "score", "instructions": instructions, "levels": list(levels)}
+        # The wire format names the levels `criteria`, as a choice's options.
+        question = {"type": "score", "instructions": instructions, "criteria": list(levels)}
         return JudgmentDescriptor(question, state, provider, model, allow_alias, deadline_ms, retries, description)
 
     @staticmethod
