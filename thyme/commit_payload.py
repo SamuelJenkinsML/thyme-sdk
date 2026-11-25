@@ -3,6 +3,9 @@
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
+from thyme.decision import collect_providers
+from thyme.expr._wire import proto_to_wire
+
 
 @dataclass
 class PyCodeDef:
@@ -50,6 +53,7 @@ class FeatureDef:
     # when unset (the Rust side serde-defaults them).
     request: bool = False
     default: Any = None
+    description: Optional[str] = None
 
 
 @dataclass
@@ -74,6 +78,7 @@ class ExtractorDef:
     pycode: Optional[PyCodeDef] = None
     kind: str = "PY_FUNC"
     lookup_info: Optional[LookupInfo] = None
+    decision: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -97,6 +102,7 @@ class FeaturesetDef:
     features: List[FeatureDef]
     extractors: List[ExtractorDef]
     metadata: MetadataDef = field(default_factory=MetadataDef)
+    policies: List[Dict[str, Any]] = field(default_factory=list)
 
 
 def _wire_operator(op: dict) -> dict:
@@ -176,6 +182,7 @@ def _to_extractor(ext: dict) -> ExtractorDef:
         pycode=pycode,
         kind=ext.get("kind", "PY_FUNC"),
         lookup_info=lookup_info,
+        decision=ext.get("decision"),
     )
 
 
@@ -200,6 +207,7 @@ def _to_featureset(fs: dict) -> FeaturesetDef:
             dtype=f["dtype"],
             request=f.get("request", False),
             default=f.get("default"),
+            description=f.get("description"),
         )
         for f in fs.get("features", [])
     ]
@@ -209,7 +217,16 @@ def _to_featureset(fs: dict) -> FeaturesetDef:
         features=features,
         extractors=extractors,
         metadata=_to_metadata(fs.get("metadata")),
+        policies=[_to_policy(p) for p in fs.get("policies", [])],
     )
+
+
+def _to_policy(policy: dict) -> dict:
+    rules = [
+        {**rule, "when": proto_to_wire(rule["when"])} if "when" in rule else rule
+        for rule in policy["rules"]
+    ]
+    return {**policy, "rules": rules}
 
 
 def build_commit_request_for_api(
@@ -224,4 +241,5 @@ def build_commit_request_for_api(
         "pipelines": [asdict(_to_pipeline(p)) for p in pipelines],
         "featuresets": [asdict(_to_featureset(fs)) for fs in featuresets],
         "sources": [dict(s) for s in sources],
+        "providers": collect_providers(featuresets),
     }
