@@ -148,25 +148,33 @@ def _literal_for_default(value: Any) -> Any:
     return value
 
 
-def featureset(cls=None, /, **kwargs):
+def featureset(cls=None, /, *, record: Optional[str] = None, **kwargs):
     """Decorator to register a class as a featureset.
 
     Supports both `@featureset` (bare) and `@featureset(owner=..., tags=...)`.
-    Catalog metadata kwargs (`description`, `owner`, `tags`, `project`,
-    `deprecated`, `deprecation_reason`, `replacement`) are stashed on the
-    class as `__thyme_metadata__`. Unknown kwargs trigger a `FutureWarning`
-    so older SDKs don't break on newer commit-author kwargs."""
+    ``record`` sets how decisions are written: ``"sync"`` (default, waits for
+    broker ack) or ``"async"`` (bounded buffer). Catalog metadata kwargs
+    (`description`, `owner`, `tags`, `project`, `deprecated`,
+    `deprecation_reason`, `replacement`) are stashed on the class as
+    `__thyme_metadata__`. Unknown kwargs trigger a `FutureWarning` so older
+    SDKs don't break on newer commit-author kwargs."""
+    if record is not None and record not in ("sync", "async"):
+        raise ValueError(
+            f"@featureset(record={record!r}) is not valid; expected 'sync' or 'async'."
+        )
     metadata = _build_metadata("featureset", kwargs)
 
     def _apply(cls: type) -> type:
-        return _register_featureset(cls, metadata)
+        return _register_featureset(cls, metadata, record_mode=record)
 
     if cls is not None:
         return _apply(cls)
     return _apply
 
 
-def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
+def _register_featureset(
+    cls: type, metadata: EntityMetadata, *, record_mode: Optional[str] = None
+) -> type:
     features = []
     extractors = []
 
@@ -299,6 +307,8 @@ def _register_featureset(cls: type, metadata: EntityMetadata) -> type:
         schema["policies"] = policies
     if providers:
         schema["providers"] = providers
+    if record_mode is not None:
+        schema["record_mode"] = record_mode
     _FEATURESET_REGISTRY[cls.__name__] = schema
     cls._featureset_meta = schema
     cls.__thyme_metadata__ = metadata

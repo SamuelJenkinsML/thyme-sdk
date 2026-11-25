@@ -156,16 +156,14 @@ class SpecWindow(_message.Message):
     def __init__(self, agg_index: _Optional[int] = ..., window_us: _Optional[int] = ..., sum: _Optional[float] = ..., count: _Optional[int] = ..., seen: bool = ...) -> None: ...
 
 class RowAccumulator(_message.Message):
-    __slots__ = ("as_of_us", "log_floor_us", "specs", "stale_rows_until_us")
+    __slots__ = ("as_of_us", "specs", "stale_rows_until_us")
     AS_OF_US_FIELD_NUMBER: _ClassVar[int]
-    LOG_FLOOR_US_FIELD_NUMBER: _ClassVar[int]
     SPECS_FIELD_NUMBER: _ClassVar[int]
     STALE_ROWS_UNTIL_US_FIELD_NUMBER: _ClassVar[int]
     as_of_us: int
-    log_floor_us: int
     specs: _containers.RepeatedCompositeFieldContainer[SpecWindow]
     stale_rows_until_us: int
-    def __init__(self, as_of_us: _Optional[int] = ..., log_floor_us: _Optional[int] = ..., specs: _Optional[_Iterable[_Union[SpecWindow, _Mapping]]] = ..., stale_rows_until_us: _Optional[int] = ...) -> None: ...
+    def __init__(self, as_of_us: _Optional[int] = ..., specs: _Optional[_Iterable[_Union[SpecWindow, _Mapping]]] = ..., stale_rows_until_us: _Optional[int] = ...) -> None: ...
 
 class StateWrite(_message.Message):
     __slots__ = ("entity_type", "entity_id", "ts_bytes", "value", "is_raw_key")

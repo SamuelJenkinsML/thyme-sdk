@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
 
 from thyme.expr import PredicateExpr
@@ -294,3 +295,121 @@ def unique_providers(providers: Sequence[dict]) -> list[dict]:
 def collect_providers(featuresets: Sequence[dict]) -> list[dict]:
     """The providers that the featuresets' judgments name, each once."""
     return unique_providers([p for fs in featuresets for p in fs.get("providers", [])])
+
+
+_WINDOW_RE = re.compile(r"^\s*(\d+)\s*(ms|s|m|h|d)\s*$")
+_WINDOW_UNITS = {
+    "ms": lambda n: timedelta(milliseconds=n),
+    "s": lambda n: timedelta(seconds=n),
+    "m": lambda n: timedelta(minutes=n),
+    "h": lambda n: timedelta(hours=n),
+    "d": lambda n: timedelta(days=n),
+}
+
+
+def parse_window(window: str | timedelta) -> timedelta:
+    """Parse a duration such as ``"30d"``, ``"24h"``, ``"15m"`` or a ``timedelta``."""
+    if isinstance(window, timedelta):
+        if window < timedelta(0):
+            raise ValueError("outcome attach window must not be negative")
+        return window
+    m = _WINDOW_RE.match(window)
+    if not m:
+        raise ValueError(
+            f"invalid window {window!r}; expected e.g. '30d', '24h', '15m', or '60s'"
+        )
+    return _WINDOW_UNITS[m.group(2)](int(m.group(1)))
+
+
+def _parse_utc(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.astimezone(timezone.utc) if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    raise TypeError(f"expected datetime or RFC-3339 string, got {type(value).__name__}")
+
+
+@dataclass(frozen=True)
+class OutcomeDatasetSpec:
+    """Attach configuration declared on an outcome dataset."""
+
+    featureset: str
+    window: timedelta
+
+
+def outcome(*, featureset: str | type, window: str | timedelta):
+    """Attach a decision featureset and lookback window to an outcome ``@dataset``.
+
+    Outcomes without an explicit ``decision_id`` attach to the latest decision
+    for the same ``(featureset, entity_id)`` inside ``window``.
+    """
+    fs_name = featureset.__name__ if isinstance(featureset, type) else str(featureset)
+    spec = OutcomeDatasetSpec(featureset=fs_name, window=parse_window(window))
+
+    def _apply(cls: type) -> type:
+        cls._outcome_spec = spec
+        if hasattr(cls, "_dataset_meta"):
+            cls._dataset_meta["outcome"] = {
+                "featureset": spec.featureset,
+                "window_seconds": int(spec.window.total_seconds()),
+            }
+        return cls
+
+    return _apply
+
+
+def attach_outcomes(
+    decisions: Any,
+    outcomes: Any,
+    *,
+    window: str | timedelta | None = None,
+    featureset: str | type | None = None,
+) -> list[dict[str, Any]]:
+    """Attach each outcome to its decision by ID or by entity inside ``window``.
+
+    - When ``outcome["decision_id"]`` is set, it attaches directly to that
+      decision (even outside ``window``).
+    - When ``outcome["decision_id"]`` is absent or ``None``, it attaches to the
+      latest decision for the same ``(featureset, entity_id)`` with
+      ``0 <= occurred_at - decided_at <= window``.
+    - Outcomes that do not match any decision keep ``attached_decision_id = None``.
+    """
+    decision_rows = decisions.to_dicts() if hasattr(decisions, "to_dicts") else list(decisions)
+    outcome_rows = outcomes.to_dicts() if hasattr(outcomes, "to_dicts") else list(outcomes)
+
+    win = parse_window(window) if window is not None else None
+    fs_filter = featureset.__name__ if isinstance(featureset, type) else featureset
+
+    by_id: dict[str, dict[str, Any]] = {}
+    by_key: dict[tuple[str, str], list[tuple[datetime, dict[str, Any]]]] = {}
+    for dec in decision_rows:
+        if fs_filter is not None and dec.get("featureset") != fs_filter:
+            continue
+        did = dec["decision_id"]
+        by_id[did] = dec
+        key = (dec["featureset"], dec["entity_id"])
+        by_key.setdefault(key, []).append((_parse_utc(dec["decided_at"]), dec))
+    for entries in by_key.values():
+        entries.sort(key=lambda item: item[0])
+
+    attached: list[dict[str, Any]] = []
+    for out in outcome_rows:
+        row = dict(out)
+        explicit_id = out.get("decision_id")
+        matched: dict[str, Any] | None = None
+        if explicit_id:
+            matched = by_id.get(explicit_id)
+        elif win is not None:
+            out_fs = out.get("featureset") or fs_filter
+            out_entity = out.get("entity_id")
+            out_ts = _parse_utc(out["occurred_at"])
+            candidates = by_key.get((out_fs, out_entity), []) if out_fs and out_entity else []
+            for dec_ts, dec in reversed(candidates):
+                if dec_ts <= out_ts and (out_ts - dec_ts) <= win:
+                    matched = dec
+                    break
+        row["attached_decision_id"] = matched["decision_id"] if matched else None
+        row["decision"] = matched
+        attached.append(row)
+    return attached

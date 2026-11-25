@@ -103,6 +103,7 @@ class FeaturesetDef:
     extractors: List[ExtractorDef]
     metadata: MetadataDef = field(default_factory=MetadataDef)
     policies: List[Dict[str, Any]] = field(default_factory=list)
+    record_mode: Optional[str] = None
 
 
 def _wire_operator(op: dict) -> dict:
@@ -218,6 +219,7 @@ def _to_featureset(fs: dict) -> FeaturesetDef:
         extractors=extractors,
         metadata=_to_metadata(fs.get("metadata")),
         policies=[_to_policy(p) for p in fs.get("policies", [])],
+        record_mode=fs.get("record_mode"),
     )
 
 

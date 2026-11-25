@@ -401,13 +401,16 @@ def compile_featureset(fs_meta: dict) -> featureset_pb2.Featureset:
             decision=_decision_pb(ext["decision"]) if ext.get("decision") else None,
         ))
 
-    return featureset_pb2.Featureset(
-        name=fs_meta["name"],
-        features=features,
-        extractors=extractors,
-        metadata=_make_metadata(fs_meta.get("metadata")),
-        policies=[_policy_pb(p) for p in fs_meta.get("policies", [])],
-    )
+    fs_kwargs = {
+        "name": fs_meta["name"],
+        "features": features,
+        "extractors": extractors,
+        "metadata": _make_metadata(fs_meta.get("metadata")),
+        "policies": [_policy_pb(p) for p in fs_meta.get("policies", [])],
+    }
+    if fs_meta.get("record_mode") is not None:
+        fs_kwargs["record_mode"] = fs_meta["record_mode"]
+    return featureset_pb2.Featureset(**fs_kwargs)
 
 
 def compile_source(src_meta: dict) -> connector_pb2.Source:
