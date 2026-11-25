@@ -7,9 +7,10 @@ extract training data offline, log data, and inspect state.
 from __future__ import annotations
 
 import io
+import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Union
 
 import httpx
@@ -183,55 +184,71 @@ class ThymeClient:
         featureset: type,
         entity_id: str,
         inputs: dict | None = None,
+        *,
+        timestamp: datetime | str | None = None,
+        idempotency_key: str | None = None,
     ) -> ThymeResult:
         """Online feature query for a single entity.
 
         Args:
             featureset: A @featureset-decorated class.
             entity_id: The entity to query features for.
-            inputs: Values for the featureset's ``request=True`` features
-                (TH-216), keyed by feature name. When provided, the query is
-                sent over ``POST /features`` so the values can ride in the body
-                (GET cannot carry them). Request features without a default
-                must be supplied here.
+            inputs: Values for the featureset's ``request=True`` features,
+                keyed by feature name. Sent over ``POST /features``.
+            timestamp: Optional RFC-3339 string or datetime for a historical read.
+            idempotency_key: Optional ``Idempotency-Key`` header so retries of a
+                deciding featureset return the original decision without
+                calling the model a second time.
 
         Returns:
             ThymeResult with a single row of feature values.
-
-        Raises:
-            httpx.HTTPStatusError: On non-2xx response from query-server.
         """
         meta = _get_featureset_meta(featureset)
         fs_name = meta["name"]
         schema = schema_from_featureset(meta)
+        ts_str = (
+            timestamp
+            if isinstance(timestamp, str) or timestamp is None
+            else timestamp.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
+        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
 
-        if inputs:
-            response = self._http.post(
-                "/features",
-                json={
-                    "featureset": fs_name,
-                    "entity_id": entity_id,
-                    "inputs": inputs,
-                },
-            )
+        if inputs is not None:
+            payload: dict[str, Any] = {
+                "featureset": fs_name,
+                "entity_id": entity_id,
+                "inputs": inputs,
+            }
+            if ts_str is not None:
+                payload["timestamp"] = ts_str
+            response = self._http.post("/features", json=payload, headers=headers)
         else:
-            response = self._http.get(
-                "/features",
-                params={"featureset": fs_name, "entity_id": entity_id},
-            )
+            params: dict[str, Any] = {"featureset": fs_name, "entity_id": entity_id}
+            if ts_str is not None:
+                params["timestamp"] = ts_str
+            response = self._http.get("/features", params=params, headers=headers)
         response.raise_for_status()
         data = response.json()
 
-        row = _features_to_row(data["features"], schema)
-        df = pl.DataFrame([row], schema=schema)
+        raw_features = data.get("features")
+        if raw_features is None:
+            df = pl.DataFrame(schema=schema)
+        else:
+            row = _features_to_row(raw_features, schema)
+            df = pl.DataFrame([row], schema=schema)
+
+        metadata: dict[str, Any] = {
+            "entity_id": data.get("entity_id", entity_id),
+            "entity_type": data.get("entity_type", fs_name),
+            "mode": data.get("mode", "online"),
+        }
+        for key in ("decision_id", "recorded", "judgments", "policies"):
+            if key in data:
+                metadata[key] = data[key]
 
         return ThymeResult(
             df,
-            metadata={
-                "entity_id": data.get("entity_id", entity_id),
-                "entity_type": data.get("entity_type", fs_name),
-                "mode": data.get("mode", "online"),
-            },
+            metadata=metadata,
             query_run_id=_run_id(response),
         )
 
@@ -679,33 +696,179 @@ class ThymeClient:
             f"after {timeout:.0f}s"
         )
 
+    def record_decision(
+        self,
+        *,
+        featureset: str | type,
+        entity_id: str,
+        state: dict[str, Any] | str,
+        state_hash: str,
+        renderer_version: int,
+        feature_versions: dict[str, Any] | str,
+        questions_hash: str,
+        model_alias: str,
+        model_version: str,
+        judgments: dict[str, Any] | str,
+        policy_version: int,
+        rule_fired: str,
+        action: str,
+        latency_ms: int,
+        replica_id: str = "external",
+        decided_at: datetime | str | None = None,
+        decision_id: str | None = None,
+        cost_usd: float | None = None,
+        idempotency_key: str | None = None,
+    ) -> str:
+        """Record a decision made by an external model (XGBoost, LLM agent, etc.).
+
+        Sends ``POST /api/v1/decisions`` to the definition service and returns
+        the durable ``decision_id``. Dict arguments for ``state``,
+        ``feature_versions`` and ``judgments`` are serialized to JSON strings.
+        """
+        fs_name = featureset.__name__ if isinstance(featureset, type) else str(featureset)
+        ts = _iso_utc(decided_at) if decided_at is not None else _iso_utc(datetime.now(timezone.utc))
+        payload: dict[str, Any] = {
+            "featureset": fs_name,
+            "entity_id": entity_id,
+            "decided_at": ts,
+            "replica_id": replica_id,
+            "state": state if isinstance(state, str) else json.dumps(state, sort_keys=True),
+            "state_hash": state_hash,
+            "renderer_version": int(renderer_version),
+            "feature_versions": (
+                feature_versions
+                if isinstance(feature_versions, str)
+                else json.dumps(feature_versions, sort_keys=True)
+            ),
+            "questions_hash": questions_hash,
+            "model_alias": model_alias,
+            "model_version": model_version,
+            "judgments": (
+                judgments if isinstance(judgments, str) else json.dumps(judgments, sort_keys=True)
+            ),
+            "policy_version": int(policy_version),
+            "rule_fired": rule_fired,
+            "action": action,
+            "latency_ms": int(latency_ms),
+        }
+        if decision_id is not None:
+            payload["decision_id"] = decision_id
+        if cost_usd is not None:
+            payload["cost_usd"] = float(cost_usd)
+        if idempotency_key is not None:
+            payload["idempotency_key"] = idempotency_key
+
+        response = self._def_http.post("/api/v1/decisions", json=payload)
+        response.raise_for_status()
+        return response.json()["decision_id"]
+
+    def record_outcome(
+        self,
+        outcome: str,
+        *,
+        featureset: str | type,
+        entity_id: str,
+        decision_id: str | None = None,
+        value: float | None = None,
+        occurred_at: datetime | str | None = None,
+        outcome_id: str | None = None,
+    ) -> str:
+        """Record an outcome (e.g. chargeback, conversion) for a decision or entity.
+
+        Sends ``POST /api/v1/outcomes`` to the definition service and returns
+        the durable ``outcome_id``. Omit ``decision_id`` when the outcome
+        attaches by ``(featureset, entity_id)`` inside a declared window.
+        """
+        fs_name = featureset.__name__ if isinstance(featureset, type) else str(featureset)
+        ts = _iso_utc(occurred_at) if occurred_at is not None else _iso_utc(datetime.now(timezone.utc))
+        payload: dict[str, Any] = {
+            "featureset": fs_name,
+            "entity_id": entity_id,
+            "outcome": outcome,
+            "occurred_at": ts,
+        }
+        if decision_id is not None:
+            payload["decision_id"] = decision_id
+        if value is not None:
+            payload["value"] = float(value)
+        if outcome_id is not None:
+            payload["outcome_id"] = outcome_id
+
+        response = self._def_http.post("/api/v1/outcomes", json=payload)
+        response.raise_for_status()
+        return response.json()["outcome_id"]
+
+    def get_decision(self, decision_id: str) -> dict[str, Any]:
+        """Fetch one recorded decision by ID from the query server."""
+        response = self._http.get(f"/decisions/{decision_id}")
+        response.raise_for_status()
+        return response.json()
+
+    def list_decisions(
+        self,
+        *,
+        featureset: str | type | None = None,
+        entity_id: str | None = None,
+        start: datetime | str | None = None,
+        end: datetime | str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List recorded decisions from the query server (tail + Iceberg, deduplicated)."""
+        params: dict[str, Any] = {"limit": limit}
+        if featureset is not None:
+            params["featureset"] = (
+                featureset.__name__ if isinstance(featureset, type) else str(featureset)
+            )
+        if entity_id is not None:
+            params["entity_id"] = entity_id
+        if start is not None:
+            params["from"] = _iso_utc(start)
+        if end is not None:
+            params["to"] = _iso_utc(end)
+        response = self._http.get("/decisions", params=params)
+        response.raise_for_status()
+        return response.json().get("decisions", [])
+
     def erase(
         self,
-        dataset: type,
-        entity_ids: list[str],
+        dataset_or_entity: type | str | list[str],
+        entity_ids: list[str] | None = None,
+        *,
+        include_decisions: bool = False,
     ) -> None:
-        """Erase entities from a dataset (GDPR deletion).
+        """Erase entities for GDPR deletion.
 
-        Produces CDC delete events to the dataset's Kafka topic.
-        The engine processes these as tombstones in RocksDB.
-
-        Args:
-            dataset: A @dataset-decorated class.
-            entity_ids: Entity IDs to erase.
-
-        Raises:
-            httpx.HTTPStatusError: On non-2xx response.
+        Two forms:
+        - ``client.erase(DatasetClass, ["card_4417"])`` — erases from that
+          dataset (and optionally decision records/outcomes via
+          ``include_decisions=True``).
+        - ``client.erase("card_4417")`` or ``client.erase(["card_4417"])`` —
+          entity-wide erase across datasets, decision records, and outcomes.
         """
-        ds_meta = getattr(dataset, "_dataset_meta", None)
-        if ds_meta is None:
-            raise ValueError(
-                f"'{dataset.__name__}' is not a registered dataset. "
-                f"Did you decorate it with @dataset?"
-            )
-        ds_name = ds_meta["name"]
+        payload: dict[str, Any]
+        if isinstance(dataset_or_entity, str):
+            payload = {"entity_ids": [dataset_or_entity]}
+        elif isinstance(dataset_or_entity, list):
+            payload = {"entity_ids": list(dataset_or_entity)}
+        else:
+            ds_meta = getattr(dataset_or_entity, "_dataset_meta", None)
+            if ds_meta is None:
+                raise ValueError(
+                    f"'{dataset_or_entity.__name__}' is not a registered dataset. "
+                    f"Did you decorate it with @dataset?"
+                )
+            if entity_ids is None:
+                raise ValueError("entity_ids is required when erasing a specific dataset")
+            payload = {"dataset": ds_meta["name"], "entity_ids": list(entity_ids)}
+            if include_decisions:
+                payload["include_decisions"] = True
 
-        response = self._def_http.post(
-            "/api/v1/erase",
-            json={"dataset": ds_name, "entity_ids": entity_ids},
-        )
+        response = self._def_http.post("/api/v1/erase", json=payload)
         response.raise_for_status()
+
+
+def _iso_utc(value: datetime | str) -> str:
+    if isinstance(value, str):
+        return value
+    dt = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")

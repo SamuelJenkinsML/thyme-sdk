@@ -25,20 +25,22 @@ LOOKUP: ExtractorKind
 DECISION: ExtractorKind
 
 class Featureset(_message.Message):
-    __slots__ = ("name", "features", "extractors", "pycode", "metadata", "policies")
+    __slots__ = ("name", "features", "extractors", "pycode", "metadata", "policies", "record_mode")
     NAME_FIELD_NUMBER: _ClassVar[int]
     FEATURES_FIELD_NUMBER: _ClassVar[int]
     EXTRACTORS_FIELD_NUMBER: _ClassVar[int]
     PYCODE_FIELD_NUMBER: _ClassVar[int]
     METADATA_FIELD_NUMBER: _ClassVar[int]
     POLICIES_FIELD_NUMBER: _ClassVar[int]
+    RECORD_MODE_FIELD_NUMBER: _ClassVar[int]
     name: str
     features: _containers.RepeatedCompositeFieldContainer[Feature]
     extractors: _containers.RepeatedCompositeFieldContainer[Extractor]
     pycode: _pycode_pb2.PyCode
     metadata: _metadata_pb2.EntityMetadata
     policies: _containers.RepeatedCompositeFieldContainer[_policy_pb2.Policy]
-    def __init__(self, name: _Optional[str] = ..., features: _Optional[_Iterable[_Union[Feature, _Mapping]]] = ..., extractors: _Optional[_Iterable[_Union[Extractor, _Mapping]]] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., metadata: _Optional[_Union[_metadata_pb2.EntityMetadata, _Mapping]] = ..., policies: _Optional[_Iterable[_Union[_policy_pb2.Policy, _Mapping]]] = ...) -> None: ...
+    record_mode: str
+    def __init__(self, name: _Optional[str] = ..., features: _Optional[_Iterable[_Union[Feature, _Mapping]]] = ..., extractors: _Optional[_Iterable[_Union[Extractor, _Mapping]]] = ..., pycode: _Optional[_Union[_pycode_pb2.PyCode, _Mapping]] = ..., metadata: _Optional[_Union[_metadata_pb2.EntityMetadata, _Mapping]] = ..., policies: _Optional[_Iterable[_Union[_policy_pb2.Policy, _Mapping]]] = ..., record_mode: _Optional[str] = ...) -> None: ...
 
 class Feature(_message.Message):
     __slots__ = ("name", "dtype", "request", "default", "description")

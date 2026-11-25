@@ -71,6 +71,26 @@ class ThymeResult(Generic[_T]):
         return self._query_run_id
 
     @property
+    def decision_id(self) -> str | None:
+        """Decision record identifier when the queried featureset decides."""
+        return self._metadata.get("decision_id")
+
+    @property
+    def recorded(self) -> bool:
+        """Whether the response came from a stored decision record."""
+        return bool(self._metadata.get("recorded", False))
+
+    @property
+    def judgments(self) -> dict[str, Any] | None:
+        """Model judgments with probabilities returned beside the features."""
+        return self._metadata.get("judgments")
+
+    @property
+    def policies(self) -> dict[str, Any] | None:
+        """Policy versions and fired rules returned beside the features."""
+        return self._metadata.get("policies")
+
+    @property
     def is_lazy(self) -> bool:
         """Whether this result is backed by a lazy source rather than a frame."""
         return self._relation is not None
