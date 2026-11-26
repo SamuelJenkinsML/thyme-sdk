@@ -829,6 +829,37 @@ class ThymeClient:
         response.raise_for_status()
         return response.json().get("decisions", [])
 
+    def backtest_policy(
+        self,
+        featureset: str | type,
+        *,
+        policy: Any = None,
+        records: Any = None,
+        start: datetime | str | None = None,
+        end: datetime | str | None = None,
+        entity_ids: list[str] | None = None,
+        catalog: CatalogConfig | None = None,
+        judgment_columns: dict[str, str] | None = None,
+        policy_output: str = "action",
+        chunk_size: int = 100,
+    ) -> Any:
+        """Replay a policy over stored decision records in Rust with zero model calls."""
+        from thyme.backtest import backtest_policy as _backtest_policy
+
+        return _backtest_policy(
+            self,
+            featureset,
+            policy=policy,
+            records=records,
+            start=start,
+            end=end,
+            entity_ids=entity_ids,
+            catalog=catalog,
+            judgment_columns=judgment_columns,
+            policy_output=policy_output,
+            chunk_size=chunk_size,
+        )
+
     def erase(
         self,
         dataset_or_entity: type | str | list[str],
