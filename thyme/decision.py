@@ -413,3 +413,39 @@ def attach_outcomes(
         row["decision"] = matched
         attached.append(row)
     return attached
+
+
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "ArmSummary": ("thyme.backtest", "ArmSummary"),
+    "BacktestReport": ("thyme.backtest", "BacktestReport"),
+    "BacktestRow": ("thyme.backtest", "BacktestRow"),
+    "CallableDecider": ("thyme.backtest", "CallableDecider"),
+    "ComparisonReport": ("thyme.backtest", "ComparisonReport"),
+    "Decider": ("thyme.backtest", "Decider"),
+    "DeciderResult": ("thyme.backtest", "DeciderResult"),
+    "LightGBMDecider": ("thyme.backtest", "LightGBMDecider"),
+    "SklearnDecider": ("thyme.backtest", "SklearnDecider"),
+    "SystemOneArm": ("thyme.backtest", "SystemOneArm"),
+    "backtest_policy": ("thyme.backtest", "backtest_policy"),
+    "backtest_reask": ("thyme.backtest", "backtest_reask"),
+    "backtest_rebuild": ("thyme.backtest", "backtest_rebuild"),
+    "compare_arms": ("thyme.backtest", "compare_arms"),
+    "CalibrationMetrics": ("thyme.calibration", "CalibrationMetrics"),
+    "CalibrationReport": ("thyme.calibration", "CalibrationReport"),
+    "ReliabilityBin": ("thyme.calibration", "ReliabilityBin"),
+    "calibration_report": ("thyme.calibration", "calibration_report"),
+    "attach_outcomes_duckdb": ("thyme.decision_offline", "attach_outcomes_duckdb"),
+    "read_decision_outcomes": ("thyme.decision_offline", "read_decision_outcomes"),
+    "read_decision_records": ("thyme.decision_offline", "read_decision_records"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy imports keep Polars and DuckDB out of the fast ``thyme commit`` path."""
+    target = _LAZY_EXPORTS.get(name)
+    if target is not None:
+        import importlib
+
+        mod = importlib.import_module(target[0])
+        return getattr(mod, target[1])
+    raise AttributeError(f"module 'thyme.decision' has no attribute {name!r}")
