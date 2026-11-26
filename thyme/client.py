@@ -860,6 +860,139 @@ class ThymeClient:
             chunk_size=chunk_size,
         )
 
+    def backtest_reask(
+        self,
+        featureset: str | type,
+        *,
+        provider: Any = None,
+        model: str | None = None,
+        policy: Any = None,
+        samples: int | None = None,
+        records: Any = None,
+        start: datetime | str | None = None,
+        end: datetime | str | None = None,
+        entity_ids: list[str] | None = None,
+        catalog: CatalogConfig | None = None,
+        noise_band: float = 0.038,
+        policy_output: str = "action",
+        chunk_size: int = 50,
+        checkpoint_path: str | Any = None,
+        arm_name: str | None = None,
+        deadline_ms: int | None = None,
+    ) -> Any:
+        """Re-ask stored canonical decision states against a candidate model and/or policy."""
+        from thyme.backtest import backtest_reask as _backtest_reask
+
+        return _backtest_reask(
+            self,
+            featureset,
+            provider=provider,
+            model=model,
+            policy=policy,
+            samples=samples,
+            records=records,
+            start=start,
+            end=end,
+            entity_ids=entity_ids,
+            catalog=catalog,
+            noise_band=noise_band,
+            policy_output=policy_output,
+            chunk_size=chunk_size,
+            checkpoint_path=checkpoint_path,
+            arm_name=arm_name,
+            deadline_ms=deadline_ms,
+        )
+
+    def backtest_rebuild(
+        self,
+        featureset: type,
+        *,
+        provider: Any = None,
+        model: str | None = None,
+        policy: Any = None,
+        samples: int | None = None,
+        records: Any = None,
+        start: datetime | str | None = None,
+        end: datetime | str | None = None,
+        entity_ids: list[str] | None = None,
+        entity_column: str | None = None,
+        catalog: CatalogConfig | None = None,
+        as_of: str = "event",
+        state_features: list[dict[str, str]] | None = None,
+        noise_band: float = 0.038,
+        policy_output: str = "action",
+        chunk_size: int = 50,
+        checkpoint_path: str | Any = None,
+        arm_name: str | None = None,
+        deadline_ms: int | None = None,
+    ) -> Any:
+        """Rebuild historical features from the offline store at each decision time."""
+        from thyme.backtest import backtest_rebuild as _backtest_rebuild
+
+        return _backtest_rebuild(
+            self,
+            featureset,
+            provider=provider,
+            model=model,
+            policy=policy,
+            samples=samples,
+            records=records,
+            start=start,
+            end=end,
+            entity_ids=entity_ids,
+            entity_column=entity_column,
+            catalog=catalog,
+            as_of=as_of,  # type: ignore[arg-type]
+            state_features=state_features,
+            noise_band=noise_band,
+            policy_output=policy_output,
+            chunk_size=chunk_size,
+            checkpoint_path=checkpoint_path,
+            arm_name=arm_name,
+            deadline_ms=deadline_ms,
+        )
+
+    def compare_arms(
+        self,
+        featureset: str | type,
+        arms: list[Any],
+        *,
+        records: Any = None,
+        outcomes: Any = None,
+        positive_outcome: str | None = None,
+        positive_actions: list[str] | None = None,
+        probability_key: str | None = None,
+        attach_window: Any = None,
+        rebuild: bool = False,
+        entity_column: str | None = None,
+        start: datetime | str | None = None,
+        end: datetime | str | None = None,
+        entity_ids: list[str] | None = None,
+        catalog: CatalogConfig | None = None,
+        checkpoint_dir: str | Any = None,
+    ) -> Any:
+        """Compare System One models, classical ML models, and LLMs on the exact same states."""
+        from thyme.backtest import compare_arms as _compare_arms
+
+        return _compare_arms(
+            self,
+            featureset,
+            arms,
+            records=records,
+            outcomes=outcomes,
+            positive_outcome=positive_outcome,
+            positive_actions=positive_actions,
+            probability_key=probability_key,
+            attach_window=attach_window,
+            rebuild=rebuild,
+            entity_column=entity_column,
+            start=start,
+            end=end,
+            entity_ids=entity_ids,
+            catalog=catalog,
+            checkpoint_dir=checkpoint_dir,
+        )
+
     def erase(
         self,
         dataset_or_entity: type | str | list[str],
