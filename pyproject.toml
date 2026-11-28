@@ -22,12 +22,12 @@ testing = ["confluent-kafka>=2.5"]
 # PyIceberg is `N` for "Read with equality deletes" in the Iceberg support
 # matrix and Polars delegates its Iceberg scan to it, so after a backfill either
 # returns superseded rows silently. See thyme/offline_iceberg.py.
-offline = ["duckdb>=1.0", "pyarrow>=15.0"]
+offline = ["duckdb>=1.5.1,<2.0", "pyarrow>=15.0"]
 all = [
     "pandas>=2.0",
     "pyarrow>=15.0",
     "confluent-kafka>=2.5",
-    "duckdb>=1.0",
+    "duckdb>=1.5.1,<2.0",
 ]
 
 [project.scripts]
@@ -36,7 +36,7 @@ thyme = "thyme.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
-    "duckdb>=1.0",
+    "duckdb>=1.5.1,<2.0",
     "pyarrow>=15.0",
     "psycopg[binary]>=3.1",
     "ruff>=0.4.0",

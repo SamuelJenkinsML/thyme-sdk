@@ -23,7 +23,7 @@ project only the needed columns, and never call Python per row.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 # Columns the sink writes that a training pull must never read.
 #
@@ -38,7 +38,7 @@ from typing import Any
 # different things, which is one more reason not to route training pulls through
 # query-server. Names mirror offline-sink/internal/sink/schema.go.
 BLOB_COLUMNS = frozenset(
-    {"state_value", "sketches", "dimensions", "json_features", "op", "event_time"}
+    {"state_value", "sketches", "dimensions", "json_features", "op", "event_time", "known_at"}
 )
 
 #: The entity key and ordering key in every offline table.
@@ -50,6 +50,9 @@ TS_COLUMN = "ts"
 #: cannot prune partitions, and partition pruning is what turns a full-history
 #: scan into a bounded one.
 PARTITION_COLUMN = "event_time"
+
+#: Commit-time knowledge clock written by offline-sink (nullable on pre-existing tables).
+KNOWN_AT_COLUMN = "known_at"
 
 # Safety margin on the upper prune bound, and it is load-bearing.
 #
@@ -190,11 +193,12 @@ def _quote_table(table: str) -> str:
 
 def _check_table(
     con: Any, dataset: str, table: str, columns: list[str], windows: dict, latest: dict
-) -> None:
+) -> bool:
     """Refuse a table the pull cannot read correctly, by name.
 
     Reading stored totals where the table has shares would not fail: a late row
     has no total, so its contribution would be lost with no error.
+    Returns whether the table carries the `known_at` column.
     """
     try:
         have = {row[0] for row in con.execute(f"DESCRIBE {_quote_table(table)}").fetchall()}
@@ -218,6 +222,7 @@ def _check_table(
             f"table {table} holds shares for {unknown} but no pipeline in this process "
             f"declares {dataset!r}'s windows; import the module that defines it"
         )
+    return KNOWN_AT_COLUMN in have
 
 
 def resolve_featureset(
@@ -229,6 +234,7 @@ def resolve_featureset(
     entity_column: str,
     timestamp_column: str,
     max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
+    as_of: Literal["event", "known"] = "event",
 ) -> Any:
     """Resolve a spine against every table a featureset reads; returns a relation.
 
@@ -250,7 +256,7 @@ def resolve_featureset(
         columns = sorted({column for _, column in pairs})
         windows = windowed_columns(dataset)
         latest = latest_columns(dataset)
-        _check_table(con, dataset, table, columns, windows, latest)
+        has_known_at = _check_table(con, dataset, table, columns, windows, latest)
         relation = resolve_spine(
             con,
             table=table,
@@ -261,6 +267,8 @@ def resolve_featureset(
             max_lookback=max_lookback,
             windows=windows,
             latest=latest,
+            as_of=as_of,
+            has_known_at=has_known_at,
         )
         named = ", ".join(f"{_quote_ident(c)} AS {_quote_ident(f)}" for f, c in pairs)
         if len(by_dataset) == 1:
@@ -287,6 +295,8 @@ def resolve_spine(
     max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
     windows: dict[str, tuple[str, int]] | None = None,
     latest: dict[str, str | None] | None = None,
+    as_of: Literal["event", "known"] = "event",
+    has_known_at: bool | None = None,
 ) -> Any:
     """Resolve a whole spine against one offline table, returning a relation.
 
@@ -328,6 +338,8 @@ def resolve_spine(
         max_lookback=max_lookback,
         windows=windows,
         latest=latest,
+        as_of=as_of,
+        has_known_at=has_known_at,
     )
     return con.sql(sql)
 
@@ -342,50 +354,20 @@ def build_asof_sql(
     max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
     windows: dict[str, tuple[str, int]] | None = None,
     latest: dict[str, str | None] | None = None,
+    as_of: Literal["event", "known"] = "event",
+    has_known_at: bool | None = None,
 ) -> str:
     """Build the as-of join that resolves an entire spine in one scan.
 
-    Args:
-        table: Fully-qualified Iceberg table, e.g. ``thyme.user_order_stats``.
-        feature_columns: Table columns to project. Never include blob columns;
-            see :data:`BLOB_COLUMNS`.
-        entity_column: Entity-id column **in the spine**.
-        timestamp_column: Timestamp column **in the spine**.
-        spine_relation: Relation holding the spine. Registered from Arrow by the
-            caller, so the spine is never serialised through SQL.
-        max_lookback: A DuckDB interval bounding how far back history is read.
-            Defaults to :data:`DEFAULT_MAX_LOOKBACK`; pass ``None`` for all of
-            history. See the note on unbounded scans below.
-        windows: Columns that are windowed Count, Sum or Avg, as
-            :func:`windowed_columns` returns them. Each is added up from the
-            rows' shares at the spine row's own time instead of read.
-        latest: Columns that are a Last or LastK, as :func:`latest_columns`
-            returns them. Each is read from its key of `json_features`.
-
-    ## Ordering is on the raw timestamp string
-
-    The engine stores the source record's timestamp **verbatim**, and RocksDB
-    keys on ``{type}:{id}:{that string}``, so ``seek_for_prev`` compares *bytes*
-    lexicographically. This join must compare them the same way, and does:
-    both sides stay ``VARCHAR`` and DuckDB's comparison is byte-wise.
-
-    That is not the same as chronological order. ``"…T09:14:02.1Z"`` sorts
-    *below* ``"…T09:14:02Z"`` because ``.`` (0x2E) < ``Z`` (0x5A), while being
-    100 ms later. Parsing to an instant would silently return a different row
-    than the online store — the bug class that made TH-147's first cut drop
-    history.
-
-    ## Bounding the scan
-
-    The upper bound is free and always safe: an as-of read never looks forward,
-    so history above the spine's newest timestamp cannot be an answer.
-
-    The lower bound is not free. To find the newest row at or before each spine
-    timestamp, an entity that last updated two years ago requires reading two
-    years. ``max_lookback`` caps that, and in doing so changes the semantics to
-    "the value as of ``ts``, provided it was updated within the window". Left
-    unset, history is unbounded and so is the scan.
+    When ``as_of="known"``, resolves bitemporally so each spine row sees only
+    rows with ``COALESCE(known_at, event_time) <= T``: windowed Count/Sum/Avg
+    subtract an IEJoin correction term for rows whose ``event_time <= T < known_at``
+    (handling both late arrivals and multi-version updates in one pass), while
+    non-windowed columns take a fast-path ASOF join with a targeted fallback
+    only for spine points whose newest row was not yet known at ``T``.
     """
+    if as_of not in ("event", "known"):
+        raise ValueError(f"invalid as_of {as_of!r}: expected 'event' or 'known'")
     if not feature_columns:
         raise ValueError(
             "feature_columns is empty: an as-of read with no projected feature "
@@ -398,6 +380,8 @@ def build_asof_sql(
             f"feature columns and are never needed on the training path."
         )
 
+    use_known_col = (as_of == "known") if has_known_at is None else has_known_at
+
     tbl = _quote_table(table)
     spine = _quote_ident(spine_relation)
     s_entity = _quote_ident(entity_column)
@@ -408,15 +392,19 @@ def build_asof_sql(
     windows = {c: w for c, w in (windows or {}).items() if c in feature_columns}
     shares = [c for c, _ in _share_columns(windows)]
     latest = {c: t for c, t in (latest or {}).items() if c in feature_columns}
+    non_window_cols = [c for c in feature_columns if c not in windows]
+
     # Projected explicitly, never `*` -- see BLOB_COLUMNS. The map is read one
     # key at a time for the same reason.
+    base_projected_cols = list(feature_columns) + list(shares)
     projected = ", ".join(
         f"h.{_quote_ident(JSON_FEATURES_COLUMN)}[{_quote_literal(c)}] AS {_quote_ident(c)}"
         if c in latest
         else f"h.{_quote_ident(c)}"
-        for c in feature_columns + shares
+        for c in base_projected_cols
     )
-    if windows:
+    need_event_time = bool(windows) or as_of == "known" or use_known_col
+    if need_event_time:
         projected += f", h.{_quote_ident(PARTITION_COLUMN)}"
 
     part = _quote_ident(PARTITION_COLUMN)
@@ -427,7 +415,8 @@ def build_asof_sql(
             f"(SELECT min_event_time FROM bounds) - INTERVAL '{max_lookback}'"
         )
 
-    return f"""\
+    if as_of == "event" and not use_known_col:
+        return f"""\
 WITH bounds AS (
     SELECT
         MAX({s_ts}) AS max_ts,
@@ -436,18 +425,6 @@ WITH bounds AS (
     FROM {spine}
 ),
 history AS (
-    -- Pruning is on event_time, the partition column (`days(event_time)`): a
-    -- predicate on the `ts` string cannot prune partitions, and pruning is what
-    -- makes this scan cheap. The margin on the upper bound is load-bearing --
-    -- see _PRUNE_MARGIN. The bounds are TIMESTAMPTZ because the column is:
-    -- a naive cast reads the spine's "...Z" in the session's zone, and east
-    -- of UTC that prunes away the newest rows and resolves to a stale one.
-    --
-    -- The bounds arrive as scalar subqueries, not as a comma join against
-    -- `bounds`. That looks equivalent -- bounds is one row -- but an inequality
-    -- between two relations plans as a NESTED_LOOP_JOIN, which cost 87s of CPU
-    -- on a 500k-row history. A scalar subquery is evaluated once and folded in
-    -- as a constant, which is what the pruning wanted in the first place.
     SELECT h.{h_entity}, h.{h_ts}, {projected}
     FROM {tbl} h
     WHERE h.{part} <= (SELECT max_event_time FROM bounds){lower_bound}
@@ -458,6 +435,241 @@ ASOF LEFT JOIN history h
   ON s.{s_entity} = h.{h_entity}
  AND s.{s_ts} >= h.{h_ts}{_window_joins(windows, s_entity, s_ts)}
 """
+
+    known_expr = (
+        f"COALESCE(h.{_quote_ident(KNOWN_AT_COLUMN)}, h.{part})"
+        if use_known_col
+        else f"h.{part}"
+    )
+    carry_cols = [ENTITY_ID_COLUMN, TS_COLUMN] + base_projected_cols + [PARTITION_COLUMN]
+    carry_select = ", ".join(_quote_ident(c) for c in carry_cols) + ", __k"
+
+    if as_of == "event":
+        # Append-only versioned table read at event time: pick latest known_at per (entity_id, ts).
+        return f"""\
+WITH bounds AS (
+    SELECT
+        MAX({s_ts}) AS max_ts,
+        MIN({s_ts})::TIMESTAMPTZ AS min_event_time,
+        MAX({s_ts})::TIMESTAMPTZ + INTERVAL '{_PRUNE_MARGIN}' AS max_event_time
+    FROM {spine}
+),
+raw_history AS (
+    SELECT h.{h_entity}, h.{h_ts}, {projected}, {known_expr} AS __k
+    FROM {tbl} h
+    WHERE h.{part} <= (SELECT max_event_time FROM bounds){lower_bound}
+),
+history AS (
+    SELECT {carry_select}
+    FROM raw_history
+    QUALIFY row_number() OVER (PARTITION BY {h_entity}, {h_ts} ORDER BY __k DESC NULLS LAST) = 1
+){_window_ctes(windows, spine, s_entity, s_ts, h_entity, part)}
+SELECT s.{s_entity}, s.{s_ts}, {", ".join(_column(c, windows, latest) for c in feature_columns)}
+FROM {spine} s
+ASOF LEFT JOIN history h
+  ON s.{s_entity} = h.{h_entity}
+ AND s.{s_ts} >= h.{h_ts}{_window_joins(windows, s_entity, s_ts)}
+"""
+
+    # Knowledge-time path (`as_of="known"`).
+    q = _quote_ident
+    ctes = [
+        f"""bounds AS (
+    SELECT
+        MAX({s_ts}) AS max_ts,
+        MIN({s_ts})::TIMESTAMPTZ AS min_event_time,
+        MAX({s_ts})::TIMESTAMPTZ + INTERVAL '{_PRUNE_MARGIN}' AS max_event_time
+    FROM {spine}
+)""",
+        f"""raw_history AS (
+    SELECT h.{h_entity}, h.{h_ts}, {projected}, {known_expr} AS __k
+    FROM {tbl} h
+    WHERE h.{part} <= (SELECT max_event_time FROM bounds){lower_bound}
+)""",
+        f"""history AS (
+    SELECT {carry_select}
+    FROM raw_history
+    QUALIFY row_number() OVER (PARTITION BY {h_entity}, {h_ts} ORDER BY __k DESC NULLS LAST) = 1
+)""",
+        f"""points AS (
+    SELECT DISTINCT {s_entity} AS e, {s_ts} AS ts, {s_ts}::TIMESTAMPTZ AS at_ts FROM {spine}
+)""",
+    ]
+
+    if non_window_cols:
+        nw_select = ", ".join(f"h.{q(c)} AS {q(c)}" for c in non_window_cols)
+        ctes.append(
+            f"""asof_latest AS (
+    SELECT p.e, p.ts, p.at_ts, h.{h_ts} AS __h_ts, h.__k AS __h_k, {nw_select}
+    FROM points p
+    ASOF LEFT JOIN history h
+      ON p.e = h.{h_entity}
+     AND p.ts >= h.{h_ts}
+)"""
+        )
+        ctes.append(
+            """affected_points AS (
+    SELECT e, ts, at_ts
+    FROM asof_latest
+    WHERE __h_ts IS NOT NULL AND __h_k > at_ts
+)"""
+        )
+        kf_aggs = ", ".join(
+            f"arg_max(r.{q(c)}, struct_pack(t := r.{h_ts}, k := r.__k)) AS {q(c)}"
+            for c in non_window_cols
+        )
+        ctes.append(
+            f"""known_fallback AS (
+    SELECT p.e, p.ts, MAX(r.{h_ts}) AS __kf_ts, {kf_aggs}
+    FROM affected_points p
+    JOIN raw_history r
+      ON r.{h_entity} = p.e
+     AND r.{h_ts} <= p.ts
+     AND r.__k <= p.at_ts
+    GROUP BY p.e, p.ts
+)"""
+        )
+    else:
+        # No non-windowed columns: existence of any known row by T reduces to
+        # MIN(__k) <= T per entity because known_at >= event_time always holds.
+        ctes.append(
+            f"""entity_first_known AS (
+    SELECT {h_entity} AS e, MIN(__k) AS __min_k
+    FROM raw_history
+    GROUP BY {h_entity}
+)"""
+        )
+
+    if windows:
+        share_specs = _share_columns(windows)
+        per_time = ", ".join(f"SUM(CAST(h.{q(c)} AS {_EXACT[x]})) AS {q(c)}" for c, x in share_specs)
+        running = ", ".join(f"SUM({q(c)}) OVER w AS {q(c)}" for c, _ in share_specs)
+        cols = ", ".join(f"r.{q(c)}" for c, _ in share_specs)
+        win_lengths = sorted({w for _, w in windows.values()})
+        min_win = win_lengths[0]
+
+        # Exact O(N log N) bitemporal window identity (using known_at >= event_time):
+        #   SUM(t in [lo, T] AND k <= T)
+        #     = SUM(k <= T) - SUM(t < lo) + SUM(t < lo AND k > T)
+        # Both leading sums are native ASOF joins; the residual (cell2) contains
+        # only rows delayed longer than the window itself (k - t > min_win - 1).
+        step_exprs = ", ".join(
+            f"(COALESCE(CAST({q(c)} AS {_EXACT[x]}), 0) - "
+            f"COALESCE(LAG(CAST({q(c)} AS {_EXACT[x]})) OVER (PARTITION BY {h_entity}, {h_ts} ORDER BY __k ASC), 0)) AS {q(c)}"
+            for c, x in share_specs
+        )
+        nonzero_filter = " OR ".join(f"{q(c)} <> 0" for c, _ in share_specs)
+        ctes.append(
+            f"""version_steps AS (
+    SELECT {h_entity} AS e, {part} AS t, __k AS k, {step_exprs}
+    FROM raw_history
+)"""
+        )
+        per_k_sum = ", ".join(f"SUM({q(c)}) AS {q(c)}" for c, _ in share_specs)
+        ctes.append(
+            f"""per_k AS (
+    SELECT e, k, {per_k_sum} FROM version_steps GROUP BY e, k
+)"""
+        )
+        ctes.append(
+            f"""running_k AS (
+    SELECT e, k, {running} FROM per_k
+    WINDOW w AS (PARTITION BY e ORDER BY k ROWS UNBOUNDED PRECEDING)
+)"""
+        )
+        ctes.append(
+            f"""hi_k AS (
+    SELECT p.e, p.ts, {cols} FROM points p ASOF LEFT JOIN running_k r ON r.e = p.e AND p.at_ts >= r.k
+)"""
+        )
+        ctes.append(
+            f"""per_time AS (
+    SELECT h.{h_entity} AS e, h.{part} AS t, {per_time} FROM history h GROUP BY ALL
+)"""
+        )
+        ctes.append(
+            f"""running AS (
+    SELECT e, t, {running} FROM per_time
+    WINDOW w AS (PARTITION BY e ORDER BY t ROWS UNBOUNDED PRECEDING)
+)"""
+        )
+        for w in win_lengths:
+            ctes.append(
+                f"""lo{w} AS (
+    SELECT p.e, p.ts, {cols} FROM points p
+    ASOF LEFT JOIN running r ON r.e = p.e AND to_timestamp(floor(epoch(p.at_ts)) + {1 - w}) > r.t
+)"""
+            )
+
+        ctes.append(
+            f"""ultra_late AS (
+    SELECT e, t, k, {", ".join(q(c) for c, _ in share_specs)}
+    FROM version_steps
+    WHERE epoch(k) - epoch(t) > {min_win - 1} AND ({nonzero_filter})
+)"""
+        )
+        cell2_aggs = []
+        for col_name, (kind, w) in windows.items():
+            for suffix in _NEEDS[kind]:
+                scol = col_name + suffix
+                alias = f"{scol}__w{w}"
+                cell2_aggs.append(
+                    f"SUM(CASE WHEN u.t < to_timestamp(floor(epoch(p.at_ts)) + {1 - w}) THEN u.{q(scol)} ELSE 0 END) AS {q(alias)}"
+                )
+        ctes.append(
+            f"""cell2 AS (
+    SELECT p.e, p.ts, {", ".join(cell2_aggs)}
+    FROM points p
+    JOIN ultra_late u
+      ON u.e = p.e
+     AND u.t < to_timestamp(floor(epoch(p.at_ts)) + {1 - min_win})
+     AND u.k > p.at_ts
+    GROUP BY p.e, p.ts
+)"""
+        )
+
+    joins = []
+    if non_window_cols:
+        joins.append(f"LEFT JOIN asof_latest a ON a.e = s.{s_entity} AND a.ts = s.{s_ts}")
+        joins.append(f"LEFT JOIN known_fallback kf ON kf.e = s.{s_entity} AND kf.ts = s.{s_ts}")
+        exists_cond = "CASE WHEN a.__h_ts IS NULL THEN FALSE WHEN a.__h_k > a.at_ts THEN kf.__kf_ts IS NOT NULL ELSE TRUE END"
+    else:
+        joins.append(f"LEFT JOIN entity_first_known efk ON efk.e = s.{s_entity}")
+        exists_cond = f"efk.__min_k IS NOT NULL AND efk.__min_k <= s.{s_ts}::TIMESTAMPTZ"
+
+    if windows:
+        for j in ["hi_k"] + [f"lo{w}" for w in sorted({w for _, w in windows.values()})] + ["cell2"]:
+            joins.append(f"LEFT JOIN {j} ON {j}.e = s.{s_entity} AND {j}.ts = s.{s_ts}")
+
+    select_cols = [f"s.{s_entity}", f"s.{s_ts}"]
+    for c in feature_columns:
+        if c in windows:
+            kind, w = windows[c]
+            n_col = c + SHARE_COUNT
+            s_col = c + SHARE_SUM
+            n_expr = (
+                f"CAST(COALESCE(hi_k.{q(n_col)}, 0) - COALESCE(lo{w}.{q(n_col)}, 0) "
+                f"+ COALESCE(cell2.{q(f'{n_col}__w{w}')}, 0) AS DOUBLE)"
+            )
+            s_expr = (
+                f"CAST(COALESCE(hi_k.{q(s_col)}, 0) - COALESCE(lo{w}.{q(s_col)}, 0) "
+                f"+ COALESCE(cell2.{q(f'{s_col}__w{w}')}, 0) AS DOUBLE)"
+            )
+            if kind == "count":
+                val = n_expr
+            elif kind == "sum":
+                val = s_expr
+            else:
+                val = f"CASE WHEN {n_expr} > 0 THEN {s_expr} / {n_expr} ELSE 0.0 END"
+            select_cols.append(f"CASE WHEN NOT ({exists_cond}) THEN NULL ELSE {val} END AS {q(c)}")
+        else:
+            raw_val = f"CASE WHEN a.__h_ts IS NULL THEN NULL WHEN a.__h_k > a.at_ts THEN kf.{q(c)} ELSE a.{q(c)} END"
+            if latest.get(c) is not None:
+                select_cols.append(f"CAST(CAST({raw_val} AS JSON) AS {latest[c]}) AS {q(c)}")
+            else:
+                select_cols.append(f"{raw_val} AS {q(c)}")
+
+    return "WITH " + ",\n".join(ctes) + f"\nSELECT {', '.join(select_cols)}\nFROM {spine} s\n" + "\n".join(joins) + "\n"
 
 
 # What each aggregation reads of its share, and the exact type it is totalled in.

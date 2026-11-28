@@ -306,6 +306,7 @@ class ThymeClient:
         catalog: CatalogConfig | None = None,
         max_lookback: str | None = DEFAULT_MAX_LOOKBACK,
         vectorized: bool = False,
+        as_of: str = "event",
     ) -> ThymeResult:
         """Point-in-time correct batch feature extraction for training data.
 
@@ -348,6 +349,7 @@ class ThymeClient:
                 catalog=catalog or CatalogConfig.from_env(),
                 max_lookback=max_lookback,
                 vectorized=vectorized,
+                as_of=as_of,
             )
 
         meta = _get_featureset_meta(featureset)
@@ -371,9 +373,12 @@ class ThymeClient:
                 for row in batch.to_dicts()
             ]
 
+            body_payload: dict[str, Any] = {"featureset": fs_name, "queries": queries}
+            if as_of != "event":
+                body_payload["as_of"] = as_of
             response = self._http.post(
                 "/features/offline",
-                json={"featureset": fs_name, "queries": queries},
+                json=body_payload,
                 headers={"accept": _ARROW_ACCEPT},
             )
             response.raise_for_status()
@@ -423,6 +428,7 @@ class ThymeClient:
         catalog: CatalogConfig,
         max_lookback: str | None,
         vectorized: bool = False,
+        as_of: str = "event",
     ) -> ThymeResult:
         """Resolve a spine against the Iceberg store in one as-of join."""
         meta = _get_featureset_meta(featureset)
@@ -441,12 +447,14 @@ class ThymeClient:
             entity_column=entity_column,
             timestamp_column=timestamp_column,
             max_lookback=max_lookback,
+            as_of=as_of,  # type: ignore[arg-type]
         )
         metadata = {
             "entity_type": fs_name,
             "mode": "offline",
             "source": "iceberg",
             "catalog": catalog.type,
+            "as_of": as_of,
         }
 
         if not runnable_extractors(meta):
@@ -469,6 +477,7 @@ class ThymeClient:
         entity_id: str,
         *,
         timestamp: str | None = None,
+        as_of: str = "event",
     ) -> ThymeResult:
         """Direct dataset point lookup (no extractors).
 
@@ -496,6 +505,8 @@ class ThymeClient:
         }
         if timestamp is not None:
             params["timestamp"] = timestamp
+        if as_of != "event":
+            params["as_of"] = as_of
 
         response = self._http.get("/features", params=params)
         response.raise_for_status()
@@ -917,7 +928,7 @@ class ThymeClient:
         entity_ids: list[str] | None = None,
         entity_column: str | None = None,
         catalog: CatalogConfig | None = None,
-        as_of: str = "event",
+        as_of: str = "known",
         state_features: list[dict[str, str]] | None = None,
         noise_band: float = 0.038,
         policy_output: str = "action",
@@ -964,6 +975,7 @@ class ThymeClient:
         probability_key: str | None = None,
         attach_window: Any = None,
         rebuild: bool = False,
+        as_of: str = "known",
         entity_column: str | None = None,
         start: datetime | str | None = None,
         end: datetime | str | None = None,
@@ -985,6 +997,7 @@ class ThymeClient:
             probability_key=probability_key,
             attach_window=attach_window,
             rebuild=rebuild,
+            as_of=as_of,  # type: ignore[arg-type]
             entity_column=entity_column,
             start=start,
             end=end,
