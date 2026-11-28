@@ -300,12 +300,13 @@ def test_rebuild_detects_late_event_drift_and_emits_late_data_warning():
 
     client.query_offline = fake_query_offline  # type: ignore[method-assign]
 
-    # When running rebuild
+    # When running rebuild in explicit event-time mode
     report = backtest_rebuild(
         client,
         CardCheckoutRebuild,
         records=records,
         entity_column="card_id",
+        as_of="event",
         samples=1,
     )
 

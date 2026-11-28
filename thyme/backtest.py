@@ -840,6 +840,7 @@ def _rebuild_states_for_records(
     *,
     entity_column: str | None = None,
     catalog: CatalogConfig | None = None,
+    as_of: Literal["event", "known"] = "known",
 ) -> tuple[dict[str, dict[str, Any]], dict[str, tuple[str, ...]]]:
     """Pull offline state at each decision's timestamp and detect late-event drift."""
     if not records:
@@ -855,6 +856,7 @@ def _rebuild_states_for_records(
         entity_column=ent_col,
         timestamp_column="decided_at",
         catalog=catalog,
+        as_of=as_of,
     )
     pulled_rows = (
         offline.to_polars().to_dicts()
@@ -902,7 +904,7 @@ def backtest_rebuild(
     entity_ids: Sequence[str] | None = None,
     entity_column: str | None = None,
     catalog: CatalogConfig | None = None,
-    as_of: Literal["event", "known"] = "event",
+    as_of: Literal["event", "known"] = "known",
     state_features: Sequence[dict[str, str]] | None = None,
     noise_band: float = DEFAULT_NOISE_BAND,
     policy_output: str = "action",
@@ -912,10 +914,8 @@ def backtest_rebuild(
     deadline_ms: int | None = None,
 ) -> BacktestReport:
     """Rebuild historical features from the offline store at each decision time and evaluate."""
-    if as_of == "known":
-        raise NotImplementedError(
-            "as_of='known' requires Knowledge Time in the offline store (Phase 5)."
-        )
+    if as_of not in ("event", "known"):
+        raise ValueError(f"invalid as_of {as_of!r}: expected 'event' or 'known'")
     fs_name = _featureset_name(featureset)
     loaded = _load_records(
         client,
@@ -935,6 +935,7 @@ def backtest_rebuild(
         loaded,
         entity_column=entity_column,
         catalog=catalog,
+        as_of=as_of,
     )
 
     ckpt = Path(checkpoint_path) if checkpoint_path is not None else None
@@ -1022,7 +1023,7 @@ def backtest_rebuild(
             )
         )
 
-    warnings = [LATE_DATA_EVENT_TIME_WARNING]
+    warnings = [LATE_DATA_EVENT_TIME_WARNING] if as_of == "event" else []
     return BacktestReport(
         mode="rebuild",
         featureset=fs_name,
@@ -1099,6 +1100,7 @@ def compare_arms(
     probability_key: str | None = None,
     attach_window: str | timedelta | None = None,
     rebuild: bool = False,
+    as_of: Literal["event", "known"] = "known",
     entity_column: str | None = None,
     start: datetime | str | None = None,
     end: datetime | str | None = None,
@@ -1128,8 +1130,10 @@ def compare_arms(
             loaded,
             entity_column=entity_column,
             catalog=catalog,
+            as_of=as_of,
         )
-        warnings.append(LATE_DATA_EVENT_TIME_WARNING)
+        if as_of == "event":
+            warnings.append(LATE_DATA_EVENT_TIME_WARNING)
     else:
         states_by_id = {
             str(rec["decision_id"]): _unwrap_state_values(rec.get("state"))
@@ -1173,6 +1177,7 @@ def compare_arms(
                     records=loaded,
                     entity_column=entity_column,
                     catalog=catalog,
+                    as_of=as_of,
                     noise_band=arm.noise_band,
                     checkpoint_path=ckpt,
                     arm_name=arm.name,
