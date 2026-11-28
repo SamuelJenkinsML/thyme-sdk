@@ -124,7 +124,10 @@ class Extractor:
         self.input_features = input_features
         self.output_features = output_features
         self.version = version
-        self.source_code = textwrap.dedent(inspect.getsource(func))
+        raw_source = getattr(func, "_thyme_source_code", None)
+        self.source_code = textwrap.dedent(
+            raw_source if isinstance(raw_source, str) else inspect.getsource(func)
+        )
 
 
 _FEATURESET_REGISTRY: dict[str, dict] = {}
@@ -256,6 +259,7 @@ def _register_featureset(
             output_features = getattr(attr, "_extractor_outputs", [])
             version = getattr(attr, "_extractor_version", 1)
 
+            raw_source = getattr(attr, "_thyme_source_code", None)
             extractors.append({
                 "name": attr_name,
                 "deps": dep_names,
@@ -263,7 +267,9 @@ def _register_featureset(
                 "outputs": output_features,
                 "version": version,
                 "kind": EXTRACTOR_KIND_PY_FUNC,
-                "source_code": textwrap.dedent(inspect.getsource(attr)),
+                "source_code": textwrap.dedent(
+                    raw_source if isinstance(raw_source, str) else inspect.getsource(attr)
+                ),
             })
 
     # Validate extractor input/output feature references
